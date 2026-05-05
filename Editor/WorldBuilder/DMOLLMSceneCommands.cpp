@@ -88,6 +88,7 @@ LLMCommandResult DMOLLMSceneService::CmdSpawnEntity(const json& p)
     {
         entity = scene.Entity_CreateLight(name, XMFLOAT3(0,0,0),
                                           XMFLOAT3(1,1,1), 5.0f, 10.0f,
+                                          wi::scene::LightComponent::SPOT,
                                           0.5f);
     }
     else if (entityType == "directional_light")
@@ -144,8 +145,10 @@ LLMCommandResult DMOLLMSceneService::CmdSpawnEntity(const json& p)
     if (p.contains("model_path") && p["model_path"].is_string())
     {
         std::string modelPath = p["model_path"].get<std::string>();
-        // Wicked Engine can load .wiscene files into existing entities
-        scene.Entity_Serialize(wi::Archive(modelPath, true));
+        // Model import is an editor/tooling bridge concern in current Wicked.
+        // Keep command admission stable, but avoid stale direct serialization.
+        wi::backlog::post("[DMO-LLM] Model import requested for '" + modelPath +
+                          "'; import bridge is not wired in this command path yet.");
     }
 
     m_editor->RecordEntity(archive, entity);
@@ -484,7 +487,7 @@ LLMCommandResult DMOLLMSceneService::CmdSetWeather(const json& p)
     if (p.contains("fog_start") && p["fog_start"].is_number())
         weather.fogStart = p["fog_start"].get<float>();
     if (p.contains("fog_end") && p["fog_end"].is_number())
-        weather.fogEnd = p["fog_end"].get<float>();
+        wi::backlog::post("[DMO-LLM] Ignoring fog_end; current Wicked weather uses fog density/height.");
     if (p.contains("fog_height") && p["fog_height"].is_number())
         weather.fogHeightEnd = p["fog_height"].get<float>();
     if (p.contains("wind_direction"))
@@ -492,7 +495,7 @@ LLMCommandResult DMOLLMSceneService::CmdSetWeather(const json& p)
     if (p.contains("wind_speed") && p["wind_speed"].is_number())
         weather.windSpeed = p["wind_speed"].get<float>();
     if (p.contains("cloudiness") && p["cloudiness"].is_number())
-        weather.cloudiness = p["cloudiness"].get<float>();
+        wi::backlog::post("[DMO-LLM] Ignoring cloudiness; current Wicked cloud controls require a volumetric cloud mapping.");
 
     r.success = true;
     r.message = "Weather settings updated";
@@ -519,13 +522,13 @@ LLMCommandResult DMOLLMSceneService::CmdSetFog(const json& p)
     if (p.contains("start") && p["start"].is_number())
         weather.fogStart = p["start"].get<float>();
     if (p.contains("end") && p["end"].is_number())
-        weather.fogEnd = p["end"].get<float>();
+        wi::backlog::post("[DMO-LLM] Ignoring fog end; current Wicked weather uses fog density/height.");
     if (p.contains("height_start") && p["height_start"].is_number())
         weather.fogHeightStart = p["height_start"].get<float>();
     if (p.contains("height_end") && p["height_end"].is_number())
         weather.fogHeightEnd = p["height_end"].get<float>();
     if (p.contains("density") && p["density"].is_number())
-        weather.fogHeightSky = p["density"].get<float>();
+        weather.fogDensity = p["density"].get<float>();
 
     r.success = true;
     r.message = "Fog settings updated";
@@ -635,11 +638,19 @@ LLMCommandResult DMOLLMSceneService::CmdCreateSpline(const json& p)
         {
             if (pt.is_array() && pt.size() >= 3)
             {
-                wi::scene::SplineComponent::Node node;
-                node.position = XMFLOAT3(pt[0].get<float>(), pt[1].get<float>(), pt[2].get<float>());
-                spline->nodes.push_back(node);
+                wi::ecs::Entity nodeEntity = wi::ecs::CreateEntity();
+                scene.names.Create(nodeEntity) =
+                    "spline_node_" + std::to_string(spline->spline_node_entities.size());
+                wi::scene::TransformComponent& nodeTransform = scene.transforms.Create(nodeEntity);
+                nodeTransform.translation_local =
+                    XMFLOAT3(pt[0].get<float>(), pt[1].get<float>(), pt[2].get<float>());
+                nodeTransform.SetDirty();
+                spline->spline_node_entities.push_back(nodeEntity);
+                spline->spline_node_transforms.push_back(nodeTransform);
+                scene.Component_Attach(nodeEntity, splineEntity);
             }
         }
+        spline->SetDirty();
     }
 
     r.success = true;

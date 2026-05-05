@@ -13,6 +13,8 @@
 // Helpers
 // ---------------------------------------------------------------------------
 
+DMOTravelMapWindow::~DMOTravelMapWindow() = default;
+
 void DMOTravelMapWindow::SetStatus(const std::string& msg)
 {
     statusLabel.SetText(msg);

@@ -198,15 +198,9 @@ void DMOLLMMCPServer::HandleClient(int clientSocket)
 
 std::string DMOLLMMCPServer::HandleRequest(const std::string& jsonRequest)
 {
-    json request;
-    try
-    {
-        request = json::parse(jsonRequest);
-    }
-    catch (...)
-    {
+    json request = json::parse(jsonRequest, nullptr, false);
+    if (request.is_discarded())
         return MakeErrorResponse(nullptr, -32700, "Parse error");
-    }
 
     std::string method = request.value("method", "");
     json id = request.contains("id") ? request["id"] : json(nullptr);

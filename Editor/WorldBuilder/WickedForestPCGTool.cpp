@@ -14,7 +14,7 @@ void WickedForestPCGWindow::Create(EditorComponent* editorIn)
     m_availableBiomes = {
         {"TemperateForest", {"oak_tree.glb", "birch_tree.glb"}, {"fern.glb", "bush.glb"}, 0.14f, 0.5f, 0.8f, 1.7f, 35.0f, 0.0f, 9999.0f},
         {"PineHills",       {"pine_tree.glb"}, {"rock_small.glb", "moss_patch.glb"}, 0.09f, 0.35f, 0.9f, 1.4f, 42.0f, 80.0f, 300.0f},
-        {"AncientGrove",    {"ancient_tree.glb"}, {"mushroom_tree.glb"}, {"ivy.glb"}, 0.07f, 0.65f, 1.2f, 2.2f, 25.0f, 0.0f, 120.0f}
+        {"AncientGrove",    {"ancient_tree.glb", "mushroom_tree.glb"}, {"ivy.glb"}, 0.07f, 0.65f, 1.2f, 2.2f, 25.0f, 0.0f, 120.0f}
     };
 
     float y = 10;

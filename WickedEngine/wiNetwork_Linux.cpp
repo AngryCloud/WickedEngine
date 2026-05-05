@@ -1,6 +1,6 @@
 #include "wiPlatform.h"
 
-#ifdef PLATFORM_LINUX
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_APPLE)
 #include "wiNetwork.h"
 #include "wiBacklog.h"
 #include "wiTimer.h"
@@ -114,7 +114,7 @@ namespace wi::network
 			timeout.tv_sec = 0;
 			timeout.tv_usec = timeout_microseconds;
 
-			int result = select(0, &readfds, NULL, NULL, &timeout);
+			int result = select(socketinternal->handle + 1, &readfds, NULL, NULL, &timeout);
 			if (result < 0)
 			{
 				wi::backlog::post("wi::network_Linux error in Send: (Error Code: " + std::to_string(result) + ") " + std::string(strerror(result)));
@@ -156,4 +156,4 @@ namespace wi::network
 	}
 }
 
-#endif // LINUX
+#endif // PLATFORM_LINUX || PLATFORM_APPLE

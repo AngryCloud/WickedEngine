@@ -150,10 +150,11 @@ void DMOLLMAssistantWindow::ExecuteDirectCommand(const std::string& input)
     std::string toolName;
     json params = json::object();
 
-    // Try parsing as JSON first
-    try
+    // Try parsing as JSON first. Wicked builds with exceptions disabled, so use
+    // nlohmann's non-throwing parse lane and fall back to a bare tool name.
+    json parsed = json::parse(input, nullptr, false);
+    if (!parsed.is_discarded())
     {
-        json parsed = json::parse(input);
         if (parsed.contains("tool"))
         {
             toolName = parsed["tool"].get<std::string>();
@@ -166,7 +167,7 @@ void DMOLLMAssistantWindow::ExecuteDirectCommand(const std::string& input)
             params = parsed.value("arguments", json::object());
         }
     }
-    catch (...)
+    else
     {
         // Not JSON — treat as a bare tool name (e.g., "get_scene_info")
         // Strip whitespace

@@ -9,15 +9,18 @@
 
 class EditorComponent;
 
-// Forward-declare the client types so the header compiles without pulling in
-// the full client headers (those are included in the .cpp only).
+// Editor-only client data-layer bridge. This header is deliberately confined
+// to the DMO editor target and must not be included from client runtime code.
+#include "Travel/WickedTravelMapEditorTool.h"
+
 struct WickedFloat2;
 struct WickedZoneMapAnchorRecord;
-class  WickedTravelMapEditorTool;
 
 class DMOTravelMapWindow : public wi::gui::Window
 {
 public:
+    ~DMOTravelMapWindow();
+
     // Called from EditorComponent::Load() — matches the pattern of all other
     // editor windows (PaintToolWindow, TerrainWindow, etc.).
     void Create(EditorComponent* editor);

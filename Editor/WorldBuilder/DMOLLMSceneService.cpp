@@ -79,7 +79,7 @@ LLMSceneContext DMOLLMSceneService::BuildSceneContext() const
     auto& scene = m_editor->GetCurrentScene();
 
     // Camera
-    XMMATRIX camWorld = XMLoadFloat4x4(&editorScene.camera.view);
+    XMMATRIX camWorld = XMLoadFloat4x4(&editorScene.camera.View);
     camWorld = XMMatrixInverse(nullptr, camWorld);
     XMFLOAT4X4 camWorldF;
     XMStoreFloat4x4(&camWorldF, camWorld);

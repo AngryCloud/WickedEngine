@@ -100,6 +100,16 @@ set_target_properties(FAudio PROPERTIES
 	SOVERSION ${LIB_MAJOR_VERSION}
 )
 
+if(APPLE)
+	# Current Apple ld treats FAudio's legacy packed data pointers as fatal by
+	# default when chained fixups are enabled. Keep this scoped to FAudio
+	# consumers instead of weakening all project link options.
+	target_link_options(FAudio INTERFACE
+		"LINKER:-ld_classic"
+		"LINKER:-unaligned_pointers,warning"
+	)
+endif()
+
 # SDL Dependency
 if (PLATFORM_WIN32)
 	message(STATUS "not using SDL")

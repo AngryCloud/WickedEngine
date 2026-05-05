@@ -32,7 +32,7 @@ struct BiomeForestRule
 class PCGForestComponent
 {
 public:
-    static constexpr wi::ecs::ComponentType TYPE = 0xBBCCDD22;
+    static constexpr uint32_t TYPE = 0xBBCCDD22;
 
     std::vector<wi::ecs::Entity> spawnedTrees;
     std::vector<wi::ecs::Entity> spawnedUndergrowth;
