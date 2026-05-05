@@ -1350,6 +1350,10 @@ namespace wi::graphics
 		{
 			return (pso == other.pso) && (renderpass_hash == other.renderpass_hash);
 		}
+		constexpr bool operator!=(const PipelineHash& other) const
+		{
+			return !(*this == other);
+		}
 		constexpr uint64_t get_hash() const
 		{
 			union

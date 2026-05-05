@@ -17,6 +17,8 @@ endif()
 
 project(WickedEngine)
 
+include(CTest)
+
 include(CheckIPOSupported)
 
 set(WICKED_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
@@ -191,6 +193,11 @@ add_custom_target(Content
 
 if (WICKED_EDITOR)
     add_subdirectory(Editor)
+    if(BUILD_TESTING)
+        # Headless DMO editor-extension tests (see Editor/dmo_editor_extension_tests).
+        add_test(NAME dmo_editor_extension_tests
+            COMMAND "$<TARGET_FILE:dmo_editor_extension_tests>")
+    endif()
 endif()
 
 if (WICKED_TESTS)

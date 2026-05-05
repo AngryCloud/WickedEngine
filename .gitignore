@@ -217,6 +217,11 @@ wiShaderdump.h
 # vscode
 .vscode/settings.json
 
+# DMO local/editor scratch
+/build-dmo*/
+/.kiro/
+/Content/terrain/dmo-battle-hex-heightmaps/
+
 # PlayStation
 *.tlog
 *.o

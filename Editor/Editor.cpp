@@ -571,6 +571,7 @@ void EditorComponent::Load()
 		cameraWnd.SetVisible(false);
 		materialPickerWnd.SetVisible(false);
 		paintToolWnd.SetVisible(false);
+		dmoTravelMapWnd.SetVisible(false);
 	});
 	generalButton.SetShadowRadius(0);
 	generalButton.SetTooltip("General options");
@@ -584,6 +585,7 @@ void EditorComponent::Load()
 		cameraWnd.SetVisible(false);
 		materialPickerWnd.SetVisible(false);
 		paintToolWnd.SetVisible(false);
+		dmoTravelMapWnd.SetVisible(false);
 	});
 	graphicsButton.SetShadowRadius(0);
 	graphicsButton.SetTooltip("Graphics options");
@@ -597,6 +599,7 @@ void EditorComponent::Load()
 		cameraWnd.SetVisible(!cameraWnd.IsVisible());
 		materialPickerWnd.SetVisible(false);
 		paintToolWnd.SetVisible(false);
+		dmoTravelMapWnd.SetVisible(false);
 	});
 	cameraButton.SetShadowRadius(0);
 	cameraButton.SetTooltip("Camera options");
@@ -610,6 +613,7 @@ void EditorComponent::Load()
 		cameraWnd.SetVisible(false);
 		materialPickerWnd.SetVisible(!materialPickerWnd.IsVisible());
 		paintToolWnd.SetVisible(false);
+		dmoTravelMapWnd.SetVisible(false);
 		if (materialPickerWnd.IsVisible())
 		{
 			materialPickerWnd.RecreateButtons();
@@ -627,6 +631,7 @@ void EditorComponent::Load()
 		cameraWnd.SetVisible(false);
 		materialPickerWnd.SetVisible(false);
 		paintToolWnd.SetVisible(!paintToolWnd.IsVisible());
+		dmoTravelMapWnd.SetVisible(false);
 	});
 	paintToolButton.SetShadowRadius(0);
 	paintToolButton.SetTooltip("Paint tool");
@@ -647,6 +652,144 @@ void EditorComponent::Load()
 
 	generalWnd.Create(this);
 	GetGUI().AddWidget(&generalWnd);
+
+	// ---- DMO Travel Map Editor ----
+	dmoTravelMapButton.Create(ICON_TERRAIN); // reuse terrain icon as placeholder
+	dmoTravelMapButton.OnClick([this](wi::gui::EventArgs args) {
+		generalWnd.SetVisible(false);
+		graphicsWnd.SetVisible(false);
+		cameraWnd.SetVisible(false);
+		materialPickerWnd.SetVisible(false);
+		paintToolWnd.SetVisible(false);
+		dmoAssetPlacerWnd.SetVisible(false);
+		dmoNeuralShaderWnd.SetVisible(false);
+		dmoProceduralTexturingWnd.SetVisible(false);
+		dmoTravelMapWnd.SetVisible(!dmoTravelMapWnd.IsVisible());
+	});
+	dmoTravelMapButton.SetShadowRadius(0);
+	dmoTravelMapButton.SetTooltip("DMO Travel Map Editor");
+	GetGUI().AddWidget(&dmoTravelMapButton);
+
+	dmoTravelMapWnd.Create(this);
+	GetGUI().AddWidget(&dmoTravelMapWnd);
+
+	// ---- DMO Asset Placer ----
+	dmoAssetPlacerButton.Create(ICON_OBJECT); // reuse object icon as placeholder
+	dmoAssetPlacerButton.OnClick([this](wi::gui::EventArgs args) {
+		generalWnd.SetVisible(false);
+		graphicsWnd.SetVisible(false);
+		cameraWnd.SetVisible(false);
+		materialPickerWnd.SetVisible(false);
+		paintToolWnd.SetVisible(false);
+		dmoTravelMapWnd.SetVisible(false);
+		dmoNeuralShaderWnd.SetVisible(false);
+		dmoProceduralTexturingWnd.SetVisible(false);
+		dmoAssetPlacerWnd.SetVisible(!dmoAssetPlacerWnd.IsVisible());
+	});
+	dmoAssetPlacerButton.SetShadowRadius(0);
+	dmoAssetPlacerButton.SetTooltip("DMO Asset Placer");
+	GetGUI().AddWidget(&dmoAssetPlacerButton);
+
+	dmoAssetPlacerWnd.Create(this);
+	GetGUI().AddWidget(&dmoAssetPlacerWnd);
+
+	// ---- DMO Neural Shader ----
+	dmoNeuralShaderButton.Create(ICON_MATERIAL); // fill-drip icon for material/shader
+	dmoNeuralShaderButton.OnClick([this](wi::gui::EventArgs args) {
+		generalWnd.SetVisible(false);
+		graphicsWnd.SetVisible(false);
+		cameraWnd.SetVisible(false);
+		materialPickerWnd.SetVisible(false);
+		paintToolWnd.SetVisible(false);
+		dmoTravelMapWnd.SetVisible(false);
+		dmoAssetPlacerWnd.SetVisible(false);
+		dmoProceduralTexturingWnd.SetVisible(false);
+		dmoNeuralShaderWnd.SetVisible(!dmoNeuralShaderWnd.IsVisible());
+	});
+	dmoNeuralShaderButton.SetShadowRadius(0);
+	dmoNeuralShaderButton.SetTooltip("DMO Neural Shader Tools");
+	GetGUI().AddWidget(&dmoNeuralShaderButton);
+
+	dmoNeuralShaderWnd.Create(this);
+	GetGUI().AddWidget(&dmoNeuralShaderWnd);
+
+	// ---- DMO Procedural Texturing ----
+	dmoProceduralTexturingButton.Create(ICON_VOXELIZE); // wave-square icon for procedural patterns
+	dmoProceduralTexturingButton.OnClick([this](wi::gui::EventArgs args) {
+		generalWnd.SetVisible(false);
+		graphicsWnd.SetVisible(false);
+		cameraWnd.SetVisible(false);
+		materialPickerWnd.SetVisible(false);
+		paintToolWnd.SetVisible(false);
+		dmoTravelMapWnd.SetVisible(false);
+		dmoAssetPlacerWnd.SetVisible(false);
+		dmoNeuralShaderWnd.SetVisible(false);
+		dmoProceduralTexturingWnd.SetVisible(!dmoProceduralTexturingWnd.IsVisible());
+	});
+	dmoProceduralTexturingButton.SetShadowRadius(0);
+	dmoProceduralTexturingButton.SetTooltip("DMO Procedural Texturing Tools");
+	GetGUI().AddWidget(&dmoProceduralTexturingButton);
+
+	dmoProceduralTexturingWnd.Create(this);
+	GetGUI().AddWidget(&dmoProceduralTexturingWnd);
+
+	// ---- DMO LLM Scene Assistant ----
+	dmoLLMAssistantButton.Create(ICON_SCRIPT); // script icon for AI/LLM
+	dmoLLMAssistantButton.OnClick([this](wi::gui::EventArgs args) {
+		generalWnd.SetVisible(false);
+		graphicsWnd.SetVisible(false);
+		cameraWnd.SetVisible(false);
+		materialPickerWnd.SetVisible(false);
+		paintToolWnd.SetVisible(false);
+		dmoTravelMapWnd.SetVisible(false);
+		dmoAssetPlacerWnd.SetVisible(false);
+		dmoNeuralShaderWnd.SetVisible(false);
+		dmoProceduralTexturingWnd.SetVisible(false);
+		dmoLLMAssistantWnd.SetVisible(!dmoLLMAssistantWnd.IsVisible());
+	});
+	dmoLLMAssistantButton.SetShadowRadius(0);
+	dmoLLMAssistantButton.SetTooltip("DMO LLM Scene Assistant\nAI-driven scene manipulation via MCP.\nExternal tools (Codex, Claude, Kiro) can connect on localhost:3100.");
+	GetGUI().AddWidget(&dmoLLMAssistantButton);
+
+	dmoLLMAssistantWnd.Create(this);
+	GetGUI().AddWidget(&dmoLLMAssistantWnd);
+
+	// ---- DMO Play From Here ----
+	dmoPlayFromHereButton.Create(ICON_PLAY); // reuse play icon
+	dmoPlayFromHereButton.OnClick([this](wi::gui::EventArgs args) {
+		if (!dmoSpawnMarkerSet)
+		{
+			PostSaveText("No spawn point set. Right-click in viewport to place one.");
+			return;
+		}
+		// Invoke existing play button logic (run last script):
+		if (last_script_path.empty() || !wi::helper::FileExists(last_script_path))
+		{
+			contentBrowserWnd.RefreshContent();
+			contentBrowserWnd.SetVisible(true);
+			contentBrowserWnd.SetEnabled(true);
+		}
+		else
+		{
+			wi::eventhandler::Subscribe_Once(wi::eventhandler::EVENT_THREAD_SAFE_POINT, [=](uint64_t userdata) {
+				wi::lua::RunFile(last_script_path);
+			});
+		}
+	});
+	dmoPlayFromHereButton.SetShadowRadius(0);
+	dmoPlayFromHereButton.SetTooltip("DMO Play From Here\nRight-click in viewport to set spawn point, then click to play from there.");
+	GetGUI().AddWidget(&dmoPlayFromHereButton);
+
+	// Restore spawn marker from config if present:
+	if (main->config.Has("dmo.spawn.x"))
+	{
+		dmoSpawnPos.x = main->config.GetFloat("dmo.spawn.x");
+		dmoSpawnPos.y = main->config.GetFloat("dmo.spawn.y");
+		dmoSpawnPos.z = main->config.GetFloat("dmo.spawn.z");
+		dmoSpawnYaw   = main->config.GetFloat("dmo.spawn.yaw");
+		dmoSpawnPitch = main->config.GetFloat("dmo.spawn.pitch");
+		dmoSpawnMarkerSet = true;
+	}
 
 	newSceneButton.Create("+");
 	newSceneButton.SetLocalizationEnabled(wi::gui::LocalizationEnabled::Tooltip);
@@ -1629,6 +1772,36 @@ void EditorComponent::Update(float dt)
 		}
 	}
 
+	// F5 → DMO Play From Here (only when navtest is not active, to avoid conflict)
+	if (!navtest_enabled && wi::input::Press(wi::input::KEYBOARD_BUTTON_F5))
+	{
+		if (!dmoSpawnMarkerSet)
+		{
+			PostSaveText("No spawn point set. Right-click in viewport to place one.");
+		}
+		else
+		{
+			if (last_script_path.empty() || !wi::helper::FileExists(last_script_path))
+			{
+				contentBrowserWnd.RefreshContent();
+				contentBrowserWnd.SetVisible(true);
+				contentBrowserWnd.SetEnabled(true);
+			}
+			else
+			{
+				wi::eventhandler::Subscribe_Once(wi::eventhandler::EVENT_THREAD_SAFE_POINT, [=](uint64_t userdata) {
+					wi::lua::RunFile(last_script_path);
+				});
+			}
+		}
+	}
+
+	// F6 → Stop (same as stopButton click)
+	if (!navtest_enabled && wi::input::Press(wi::input::KEYBOARD_BUTTON_F6))
+	{
+		wi::lua::KillProcesses();
+	}
+
 	loadmodel_font.SetHidden(!wi::jobsystem::IsBusy(loadmodel_workload));
 
 	bool terrain_generating = false;
@@ -2472,6 +2645,30 @@ void EditorComponent::Update(float dt)
 			camera.SetDirty();
 			cameraWnd.focalLengthSlider.SetValue(camera.focal_length);
 			hovered = {};
+		}
+
+		// DMO Play From Here: right-click in 3D viewport sets spawn marker
+		if (wi::input::Press(wi::input::MOUSE_BUTTON_RIGHT) &&
+			viewport3D_hitbox.intersects(XMFLOAT2(originalMouse.x, originalMouse.y)))
+		{
+			wi::scene::PickResult spawnPick = wi::scene::Pick(pickRay, wi::enums::FILTER_OBJECT_ALL, ~0u, scene);
+			if (spawnPick.entity != INVALID_ENTITY)
+			{
+				dmoSpawnPos = spawnPick.position;
+
+				// Derive yaw/pitch from camera orientation
+				XMFLOAT3 camForward = camera.At;
+				dmoSpawnYaw   = XMConvertToDegrees(std::atan2(camForward.x, camForward.z));
+				dmoSpawnPitch = XMConvertToDegrees(std::asin(-camForward.y));
+				dmoSpawnMarkerSet = true;
+
+				main->config.Set("dmo.spawn.x",     dmoSpawnPos.x);
+				main->config.Set("dmo.spawn.y",     dmoSpawnPos.y);
+				main->config.Set("dmo.spawn.z",     dmoSpawnPos.z);
+				main->config.Set("dmo.spawn.yaw",   dmoSpawnYaw);
+				main->config.Set("dmo.spawn.pitch", dmoSpawnPitch);
+				main->config.Commit();
+			}
 		}
 
 		// Interactions:
@@ -3436,6 +3633,7 @@ void EditorComponent::Render() const
 	{
 		if (hovered.entity != INVALID_ENTITY)
 		{
+
 			const ObjectComponent* object = scene.objects.GetComponent(hovered.entity);
 			if (object != nullptr)
 			{
@@ -3537,6 +3735,13 @@ void EditorComponent::Render() const
 		XMFLOAT4X4 selectionBox;
 		XMStoreFloat4x4(&selectionBox, selectedAABB.getAsBoxMatrix());
 		wi::renderer::DrawBox(selectionBox, XMFLOAT4(1, 1, 1, 1));
+	}
+
+	// DMO Play From Here: draw axis gizmo at spawn marker position
+	if (dmoSpawnMarkerSet)
+	{
+		XMMATRIX spawnMatrix = XMMatrixTranslation(dmoSpawnPos.x, dmoSpawnPos.y, dmoSpawnPos.z);
+		wi::renderer::DrawAxis(spawnMatrix, 1.0f, false);
 	}
 
 	renderPath->Render();
@@ -6483,6 +6688,31 @@ void EditorComponent::UpdateDynamicWidgets()
 	paintToolButton.SetPos(XMFLOAT2(ofs, y));
 	paintToolButton.SetSize(XMFLOAT2(hei, hei));
 	paintToolButton.Update(*this, 0);
+	y += hei + padding;
+
+	dmoTravelMapButton.SetPos(XMFLOAT2(ofs, y));
+	dmoTravelMapButton.SetSize(XMFLOAT2(hei, hei));
+	dmoTravelMapButton.Update(*this, 0);
+	y += hei + padding;
+
+	dmoAssetPlacerButton.SetPos(XMFLOAT2(ofs, y));
+	dmoAssetPlacerButton.SetSize(XMFLOAT2(hei, hei));
+	dmoAssetPlacerButton.Update(*this, 0);
+	y += hei + padding;
+
+	dmoNeuralShaderButton.SetPos(XMFLOAT2(ofs, y));
+	dmoNeuralShaderButton.SetSize(XMFLOAT2(hei, hei));
+	dmoNeuralShaderButton.Update(*this, 0);
+	y += hei + padding;
+
+	dmoProceduralTexturingButton.SetPos(XMFLOAT2(ofs, y));
+	dmoProceduralTexturingButton.SetSize(XMFLOAT2(hei, hei));
+	dmoProceduralTexturingButton.Update(*this, 0);
+	y += hei + padding;
+
+	dmoPlayFromHereButton.SetPos(XMFLOAT2(ofs, y));
+	dmoPlayFromHereButton.SetSize(XMFLOAT2(hei, hei));
+	dmoPlayFromHereButton.Update(*this, 0);
 	y += hei + padding;
 
 

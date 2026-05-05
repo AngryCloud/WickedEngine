@@ -1,0 +1,35 @@
+{
+  "mcpServers": {
+    "dmo-wicked-editor": {
+      "transport": "tcp",
+      "host": "localhost",
+      "port": 3100,
+      "description": "DMO Wicked Engine Editor - Scene manipulation tools for level building",
+      "capabilities": {
+        "tools": true
+      },
+      "tools": [
+        "spawn_entity",
+        "delete_entity",
+        "move_entity",
+        "rotate_entity",
+        "scale_entity",
+        "duplicate_entity",
+        "set_material",
+        "set_light",
+        "set_weather",
+        "set_fog",
+        "set_sky",
+        "generate_forest",
+        "place_cave",
+        "create_spline",
+        "apply_landscape",
+        "get_scene_info",
+        "select_entity",
+        "set_transform",
+        "undo",
+        "redo"
+      ]
+    }
+  }
+}

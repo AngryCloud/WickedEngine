@@ -4,6 +4,10 @@ cmake_minimum_required(VERSION 3.19)
 string(REGEX REPLACE "([.+?*])" "\\\\\\1" SDIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 file(GLOB SOURCE_FILES CONFIGURE_DEPENDS *.cpp)
+file(GLOB WORLDBUILDER_FILES CONFIGURE_DEPENDS WorldBuilder/*.cpp)
+list(APPEND SOURCE_FILES ${WORLDBUILDER_FILES})
+# DMOEditorExtensionTests.cpp defines its own main() — build as dmo_editor_extension_tests, not inside Editor.
+list(REMOVE_ITEM SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/DMOEditorExtensionTests.cpp")
 list(FILTER SOURCE_FILES EXCLUDE REGEX ${SDIR}/main_.*)
 list(FILTER SOURCE_FILES EXCLUDE REGEX ${SDIR}/stdafx.*)
 list(APPEND SOURCE_FILES main_${PLATFORM}.cpp)
@@ -55,8 +59,31 @@ endif()
 
 target_precompile_headers(Editor PRIVATE "stdafx.h")
 
+# DMO client source headers — allows DMO editor extension files to include
+# Travel/WickedTravelMapEditorTool.h and related client headers.
+# This path is editor-only; it is never added to any client library target.
+target_include_directories(Editor PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Source
+    ${CMAKE_CURRENT_SOURCE_DIR}/WorldBuilder
+)
+
+# DMO editor extension unit tests (no GPU) — separate binary so Editor keeps a single main().
+add_executable(dmo_editor_extension_tests DMOEditorExtensionTests.cpp)
+target_link_libraries(dmo_editor_extension_tests PUBLIC WickedEngine)
+target_include_directories(dmo_editor_extension_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Source
+    ${CMAKE_CURRENT_SOURCE_DIR}/WorldBuilder
+)
+if(WICKED_ENABLE_IPO)
+    set_target_properties(dmo_editor_extension_tests PROPERTIES
+        INTERPROCEDURAL_OPTIMIZATION ON
+        INTERPROCEDURAL_OPTIMIZATION_DEBUG OFF
+    )
+endif()
+
 # Needed for terrain system
 add_dependencies(Editor Content)
+add_dependencies(dmo_editor_extension_tests Content)
 
 # Copy content to build folder:
 add_custom_command(

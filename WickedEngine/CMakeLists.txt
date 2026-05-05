@@ -83,12 +83,23 @@ set_target_properties(Jolt PROPERTIES
 )
 add_compile_definitions(Jolt JPH_DEBUG_RENDERER)
 
+option(DMO_WICKED_LOCAL_DISABLE_AUDIO "Local DMO validation path disables Wicked audio runtime" OFF)
+
 file(GLOB HEADER_FILES CONFIGURE_DEPENDS *.h)
 file(GLOB SOURCE_FILES CONFIGURE_DEPENDS *.cpp)
+file(GLOB APPLE_SOURCE_FILES CONFIGURE_DEPENDS *.mm)
 list(REMOVE_ITEM SOURCE_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/offlineshadercompiler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/wiRenderer.cpp
 )
+
+if(DMO_WICKED_LOCAL_DISABLE_AUDIO)
+    list(REMOVE_ITEM SOURCE_FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/wiAudio.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/wiAudio_BindLua.cpp
+    )
+    list(APPEND SOURCE_FILES ${CMAKE_CURRENT_SOURCE_DIR}/wiAudio_local_stub.cpp)
+endif()
 
 file(GLOB SHADER_FILES CONFIGURE_DEPENDS shaders/*.hlsl shaders/*.hlsli)
 
@@ -98,7 +109,17 @@ file(GLOB SHADER_FILES CONFIGURE_DEPENDS shaders/*.hlsl shaders/*.hlsli)
 # one. The "no shaders" is needed because the offlineshadercompiler that compiles
 # the shaders depends on the wicked library as well, so we have a chicken-and-egg
 # problem.
-add_library(WickedEngine_common OBJECT ${SOURCE_FILES} ${HEADER_FILES})
+add_library(WickedEngine_common OBJECT ${SOURCE_FILES} ${HEADER_FILES} $<$<BOOL:${APPLE}>:${APPLE_SOURCE_FILES}>)
+
+if(APPLE)
+    find_library(COCOA_FRAMEWORK Cocoa REQUIRED)
+    find_library(QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
+    find_library(COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
+    find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
+    find_library(METAL_FRAMEWORK Metal REQUIRED)
+    find_library(GAMECONTROLLER_FRAMEWORK GameController REQUIRED)
+    set_source_files_properties(${APPLE_SOURCE_FILES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+endif()
 
 # the version without embedded shaders
 add_library(WickedEngine_ext_shaders ${WICKED_LIBRARY_TYPE}
@@ -248,11 +269,13 @@ else ()
         $<$<BOOL:${OpenImageDenoise_FOUND}>:OpenImageDenoise> # links OpenImageDenoise only if it's found
     )
 
-    set_target_properties(FAudio PROPERTIES
-        POSITION_INDEPENDENT_CODE ${WICKED_PIC}
-        UNITY_BUILD NO
-    )
-    set(WICKEDENGINE_STATIC_LIBRARIES ${WICKEDENGINE_STATIC_LIBRARIES} FAudio)
+    if(NOT DMO_WICKED_LOCAL_DISABLE_AUDIO)
+        set_target_properties(FAudio PROPERTIES
+            POSITION_INDEPENDENT_CODE ${WICKED_PIC}
+            UNITY_BUILD NO
+        )
+        set(WICKEDENGINE_STATIC_LIBRARIES ${WICKEDENGINE_STATIC_LIBRARIES} FAudio)
+    endif()
 
     target_link_libraries(WickedEngine_common PUBLIC dl)
 
@@ -260,6 +283,21 @@ else ()
 endif()
 
 target_link_libraries(WickedEngine_common PUBLIC ${WICKEDENGINE_STATIC_LIBRARIES})
+
+if(DEFINED SDL2_INCLUDE_DIRS)
+    target_include_directories(WickedEngine_common PUBLIC ${SDL2_INCLUDE_DIRS})
+endif()
+
+if(APPLE)
+    target_link_libraries(WickedEngine_common PUBLIC
+        ${COCOA_FRAMEWORK}
+        ${QUARTZCORE_FRAMEWORK}
+        ${COREFOUNDATION_FRAMEWORK}
+        ${COREGRAPHICS_FRAMEWORK}
+        ${METAL_FRAMEWORK}
+        ${GAMECONTROLLER_FRAMEWORK}
+    )
+endif()
 
 if (PLATFORM MATCHES "SDL2")
     target_compile_definitions(WickedEngine_common PUBLIC SDL2=1)

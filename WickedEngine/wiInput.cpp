@@ -92,7 +92,7 @@ namespace wi::input
 	static HCURSOR cursor_table[arraysize(cursor_table_original)] = {};
 #endif // _WIN32
 
-#ifdef SDL2
+#if defined(SDL2) && !defined(__APPLE__)
 	static SDL_Cursor* cursor_table_original[] = {
 		SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_ARROW),
 		SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_IBEAM),
@@ -106,7 +106,7 @@ namespace wi::input
 		SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR),
 	};
 	static SDL_Cursor* cursor_table[arraysize(cursor_table_original)] = {};
-#endif // SDL2
+#endif // defined(SDL2) && !defined(__APPLE__)
 
 #ifdef __APPLE__
 	static void* cursor_table_original[CURSOR_COUNT] = {};
@@ -1241,7 +1241,7 @@ namespace wi::input
 				}
 			}
 			
-#ifdef SDL2
+#if defined(SDL2) && !defined(__APPLE__)
 			SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(
 															colors.data(),
 															width,

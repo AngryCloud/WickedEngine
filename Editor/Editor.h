@@ -12,6 +12,11 @@
 #include "PaintToolWindow.h"
 #include "GeneralWindow.h"
 #include "IconDefinitions.h"
+#include "DMOTravelMapWindow.h"
+#include "DMOAssetPlacerWindow.h"
+#include "DMONeuralShaderWindow.h"
+#include "DMOProceduralTexturingWindow.h"
+#include "DMOLLMAssistantWindow.h"
 
 class Editor;
 class EditorComponent : public wi::RenderPath2D
@@ -84,6 +89,29 @@ public:
 	CameraWindow cameraWnd;
 	MaterialPickerWindow materialPickerWnd;
 	PaintToolWindow paintToolWnd;
+
+	// ---- DMO Editor Extension ----
+	wi::gui::Button dmoTravelMapButton;
+	DMOTravelMapWindow dmoTravelMapWnd;
+
+	wi::gui::Button dmoAssetPlacerButton;
+	DMOAssetPlacerWindow dmoAssetPlacerWnd;
+
+	wi::gui::Button dmoNeuralShaderButton;
+	DMONeuralShaderWindow dmoNeuralShaderWnd;
+
+	wi::gui::Button dmoProceduralTexturingButton;
+	DMOProceduralTexturingWindow dmoProceduralTexturingWnd;
+
+	wi::gui::Button dmoLLMAssistantButton;
+	DMOLLMAssistantWindow dmoLLMAssistantWnd;
+
+	// Play From Here
+	wi::gui::Button dmoPlayFromHereButton;
+	bool            dmoSpawnMarkerSet = false;
+	XMFLOAT3        dmoSpawnPos{};
+	float           dmoSpawnYaw   = 0.0f;
+	float           dmoSpawnPitch = 0.0f;
 
 	wi::primitive::Ray pickRay;
 	wi::physics::PickDragOperation physicsDragOp;
