@@ -90,6 +90,12 @@ endif()
 
 target_precompile_headers(Example_ImGui_Docking PRIVATE stdafx.h)
 
+# When built inside DMO-WICKED-Client, Editor sources pulled in above need client Travel headers.
+set(DMO_CLIENT_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../Source")
+if(EXISTS "${DMO_CLIENT_SOURCE_DIR}/Travel/WickedTravelMapEditorTool.h")
+	target_include_directories(Example_ImGui_Docking PRIVATE "${DMO_CLIENT_SOURCE_DIR}")
+endif()
+
 if (MSVC)
 	set_property(TARGET Example_ImGui_Docking PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 endif ()
