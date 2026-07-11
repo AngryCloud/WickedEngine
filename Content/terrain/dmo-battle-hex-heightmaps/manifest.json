@@ -1,0 +1,318 @@
+{
+  "version": 1,
+  "source": "StampIT Collection",
+  "heightmaps": [
+    {
+      "filename": "HM_Alien_World_Bobble_02_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Alien_World_Bobble_02_Ex.png",
+      "biome": "Special",
+      "displayName": "Alien World Bobble 02 Ex"
+    },
+    {
+      "filename": "HM_Alien_World_Swirl_01_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Alien_World_Swirl_01_Ex.png",
+      "biome": "Special",
+      "displayName": "Alien World Swirl 01 Ex"
+    },
+    {
+      "filename": "HM_Alien_World_Voronian_03_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Alien_World_Voronian_03_Ex.png",
+      "biome": "Special",
+      "displayName": "Alien World Voronian 03 Ex"
+    },
+    {
+      "filename": "HM_Canyon_04_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Canyon_04_Ex.png",
+      "biome": "Canyons",
+      "displayName": "Canyon 04 Ex"
+    },
+    {
+      "filename": "HM_Canyon_18_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Canyon_18_Ex.png",
+      "biome": "Canyons",
+      "displayName": "Canyon 18 Ex"
+    },
+    {
+      "filename": "HM_Canyon_Shapes_03_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Canyon_Shapes_03_Ex.png",
+      "biome": "Canyons",
+      "displayName": "Canyon Shapes 03 Ex"
+    },
+    {
+      "filename": "HM_Craters_01_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Craters_01_Ex.png",
+      "biome": "Special",
+      "displayName": "Craters 01 Ex"
+    },
+    {
+      "filename": "HM_Dover_Cliffs_06_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Dover_Cliffs_06_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Dover Cliffs 06 Ex"
+    },
+    {
+      "filename": "HM_Dover_Cliffs_15_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Dover_Cliffs_15_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Dover Cliffs 15 Ex"
+    },
+    {
+      "filename": "HM_Dune_Shapes_10_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Dune_Shapes_10_Ex.png",
+      "biome": "Desert",
+      "displayName": "Dune Shapes 10 Ex"
+    },
+    {
+      "filename": "HM_Dunes_06_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Dunes_06_Ex.png",
+      "biome": "Desert",
+      "displayName": "Dunes 06 Ex"
+    },
+    {
+      "filename": "HM_Dunes_11_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Dunes_11_Ex.png",
+      "biome": "Desert",
+      "displayName": "Dunes 11 Ex"
+    },
+    {
+      "filename": "HM_Dunes_19_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Dunes_19_Ex.png",
+      "biome": "Desert",
+      "displayName": "Dunes 19 Ex"
+    },
+    {
+      "filename": "HM_Highlands_02_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Highlands_02_Ex.png",
+      "biome": "Hills",
+      "displayName": "Highlands 02 Ex"
+    },
+    {
+      "filename": "HM_Highlands_09_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Highlands_09_Ex.png",
+      "biome": "Hills",
+      "displayName": "Highlands 09 Ex"
+    },
+    {
+      "filename": "HM_Impact_02_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Impact_02_Ex.png",
+      "biome": "Canyons",
+      "displayName": "Impact 02 Ex"
+    },
+    {
+      "filename": "HM_Impact_14_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Impact_14_Ex.png",
+      "biome": "Canyons",
+      "displayName": "Impact 14 Ex"
+    },
+    {
+      "filename": "HM_Islands_07_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Islands_07_Ex.png",
+      "biome": "Lake",
+      "displayName": "Islands 07 Ex"
+    },
+    {
+      "filename": "HM_Islands_23_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Islands_23_Ex.png",
+      "biome": "Lake",
+      "displayName": "Islands 23 Ex"
+    },
+    {
+      "filename": "HM_Meadows_04_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Meadows_04_Ex.png",
+      "biome": "Plains",
+      "displayName": "Meadows 04 Ex"
+    },
+    {
+      "filename": "HM_Meadows_12_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Meadows_12_Ex.png",
+      "biome": "Plains",
+      "displayName": "Meadows 12 Ex"
+    },
+    {
+      "filename": "HM_Meadows_28_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Meadows_28_Ex.png",
+      "biome": "Plains",
+      "displayName": "Meadows 28 Ex"
+    },
+    {
+      "filename": "HM_Monument_Desert_02_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Monument_Desert_02_Ex.png",
+      "biome": "Desert",
+      "displayName": "Monument Desert 02 Ex"
+    },
+    {
+      "filename": "HM_Pride_Rocks_01_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Pride_Rocks_01_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Pride Rocks 01 Ex"
+    },
+    {
+      "filename": "HM_Pride_Rocks_02_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Pride_Rocks_02_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Pride Rocks 02 Ex"
+    },
+    {
+      "filename": "HM_Pride_Rocks_11_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Pride_Rocks_11_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Pride Rocks 11 Ex"
+    },
+    {
+      "filename": "HM_Rocky_Desert_01_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Rocky_Desert_01_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Rocky Desert 01 Ex"
+    },
+    {
+      "filename": "HM_Rocky_Desert_12_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Rocky_Desert_12_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Rocky Desert 12 Ex"
+    },
+    {
+      "filename": "HM_Rocky_Plateaus_01_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Rocky_Plateaus_01_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Rocky Plateaus 01 Ex"
+    },
+    {
+      "filename": "HM_Rolling_Hills_06_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Rolling_Hills_06_Ex.png",
+      "biome": "Hills",
+      "displayName": "Rolling Hills 06 Ex"
+    },
+    {
+      "filename": "HM_Rough_Cliffs_18_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Rough_Cliffs_18_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Rough Cliffs 18 Ex"
+    },
+    {
+      "filename": "HM_Rugged_Rocks_02_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Rugged_Rocks_02_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Rugged Rocks 02 Ex"
+    },
+    {
+      "filename": "HM_Rugged_Rocks_14_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Rugged_Rocks_14_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Rugged Rocks 14 Ex"
+    },
+    {
+      "filename": "HM_Rugged_Rocks_20_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Rugged_Rocks_20_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Rugged Rocks 20 Ex"
+    },
+    {
+      "filename": "HM_Rugged_Sedi_Rocks_08_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Rugged_Sedi_Rocks_08_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Rugged Sedi Rocks 08 Ex"
+    },
+    {
+      "filename": "HM_Rugged_Sedi_Rocks_24_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Rugged_Sedi_Rocks_24_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Rugged Sedi Rocks 24 Ex"
+    },
+    {
+      "filename": "HM_Sandy_Beaches_05_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Sandy_Beaches_05_Ex.png",
+      "biome": "Riverbank",
+      "displayName": "Sandy Beaches 05 Ex"
+    },
+    {
+      "filename": "HM_Seaside_Cliffs_02_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Seaside_Cliffs_02_Ex.png",
+      "biome": "Riverbank",
+      "displayName": "Seaside Cliffs 02 Ex"
+    },
+    {
+      "filename": "HM_Seaside_Cliffs_06_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Seaside_Cliffs_06_Ex.png",
+      "biome": "Riverbank",
+      "displayName": "Seaside Cliffs 06 Ex"
+    },
+    {
+      "filename": "HM_Stranger_Lands_02_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Stranger_Lands_02_Ex.png",
+      "biome": "Jungle",
+      "displayName": "Stranger Lands 02 Ex"
+    },
+    {
+      "filename": "HM_Stranger_Lands_06_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Stranger_Lands_06_Ex.png",
+      "biome": "Jungle",
+      "displayName": "Stranger Lands 06 Ex"
+    },
+    {
+      "filename": "HM_Stranger_Lands_24_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Stranger_Lands_24_Ex.png",
+      "biome": "Jungle",
+      "displayName": "Stranger Lands 24 Ex"
+    },
+    {
+      "filename": "HM_Terrace_Fields_15_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Terrace_Fields_15_Ex.png",
+      "biome": "Farmland",
+      "displayName": "Terrace Fields 15 Ex"
+    },
+    {
+      "filename": "HM_Terraced_Cliffs_01_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Terraced_Cliffs_01_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Terraced Cliffs 01 Ex"
+    },
+    {
+      "filename": "HM_Terraced_Cliffs_06_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Terraced_Cliffs_06_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Terraced Cliffs 06 Ex"
+    },
+    {
+      "filename": "HM_Terraced_Cliffs_Drake_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Terraced_Cliffs_Drake_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Terraced Cliffs Drake Ex"
+    },
+    {
+      "filename": "HM_Tundra_01_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Tundra_01_Ex.png",
+      "biome": "NorthernForest",
+      "displayName": "Tundra 01 Ex"
+    },
+    {
+      "filename": "HM_Tundra_11_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Tundra_11_Ex.png",
+      "biome": "NorthernForest",
+      "displayName": "Tundra 11 Ex"
+    },
+    {
+      "filename": "HM_Valleys_01_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Valleys_01_Ex.png",
+      "biome": "Plains",
+      "displayName": "Valleys 01 Ex"
+    },
+    {
+      "filename": "HM_Volcano_03_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Volcano_03_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Volcano 03 Ex"
+    },
+    {
+      "filename": "HM_Volcano_10_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Volcano_10_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Volcano 10 Ex"
+    },
+    {
+      "filename": "HM_Volcano_20_Ex.png",
+      "path": "Content/terrain/dmo-battle-hex-heightmaps/HM_Volcano_20_Ex.png",
+      "biome": "Mountains",
+      "displayName": "Volcano 20 Ex"
+    }
+  ]
+}

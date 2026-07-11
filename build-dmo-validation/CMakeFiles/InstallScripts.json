@@ -1,0 +1,12 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/cmake_install.cmake",
+		"/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/WickedEngine/cmake_install.cmake",
+		"/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/WickedEngine/LUA/cmake_install.cmake",
+		"/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/WickedEngine/Utility/cmake_install.cmake",
+		"/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/WickedEngine/Utility/FAudio/cmake_install.cmake",
+		"/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/Samples/DmoClientMac/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

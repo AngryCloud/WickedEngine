@@ -49,6 +49,10 @@ else()
 endif()
 option(WICKED_ENABLE_SYMLINKS "Prefer symlinking over copying directories" ${symlink_default})
 
+# DMO WICKED client (macOS front-door window). Thin add-on to stock upstream;
+# the engine itself is unmodified so this fork stays trivial to re-base.
+option(DMO_MAC_CLIENT "Build the DMO WICKED macOS client window bring-up" ON)
+
 # check that IPO is supported when turned on
 if(WICKED_ENABLE_IPO)
     check_ipo_supported()
@@ -209,4 +213,8 @@ endif()
 
 if (WICKED_WINDOWS_TEMPLATE)
     add_subdirectory(Samples/Template_Windows)
+endif()
+
+if (APPLE AND DMO_MAC_CLIENT)
+    add_subdirectory(Samples/DmoClientMac)
 endif()
