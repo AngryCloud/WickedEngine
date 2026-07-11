@@ -23,6 +23,7 @@
 #elif defined(__SCE__)
 #define PLATFORM_PS5
 #elif defined(__APPLE__)
+#include <TargetConditionals.h>
 #define PLATFORM_APPLE
 #if TARGET_OS_OSX
 #define PLATFORM_MACOS

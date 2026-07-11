@@ -38,6 +38,14 @@ if (WIN32)
             /bigobj
         )
     endif()
+elseif(APPLE)
+    find_package(OpenImageDenoise "${MIN_OpenImageDenoise_VERSION}" QUIET)
+    find_package(Threads REQUIRED)
+    if(NOT ${OpenImageDenoise_FOUND})
+        message(STATUS "OpenImageDenoise>=${MIN_OpenImageDenoise_VERSION} not found, it will be disabled.")
+    else()
+        message(STATUS "OpenImageDenoise ${OpenImageDenoise_VERSION} Found.")
+    endif()
 else ()
     find_package(SDL2 REQUIRED)
     find_package(OpenImageDenoise "${MIN_OpenImageDenoise_VERSION}" QUIET)
@@ -90,6 +98,24 @@ list(REMOVE_ITEM SOURCE_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/wiRenderer.cpp
 )
 
+if(APPLE)
+    list(APPEND SOURCE_FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/wiAppleHelper.mm
+        ${CMAKE_CURRENT_SOURCE_DIR}/wiInput_Apple.mm
+    )
+    set_source_files_properties(
+        ${CMAKE_CURRENT_SOURCE_DIR}/wiAppleHelper.mm
+        ${CMAKE_CURRENT_SOURCE_DIR}/wiInput_Apple.mm
+        PROPERTIES
+            SKIP_PRECOMPILE_HEADERS ON
+            COMPILE_OPTIONS "-Wno-missing-braces"
+    )
+    list(REMOVE_ITEM SOURCE_FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/wiGraphicsDevice_DX12.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/wiGraphicsDevice_Vulkan.cpp
+    )
+endif()
+
 file(GLOB SHADER_FILES CONFIGURE_DEPENDS shaders/*.hlsl shaders/*.hlsli)
 
 # these are all Wicked files except wiRenderer.cpp, which can be compiled
@@ -132,6 +158,8 @@ add_library(WickedEngine ALIAS ${TARGET_NAME})
 # aliases for backwards compatibility
 if(WIN32)
     add_library(WickedEngine_Windows ALIAS ${TARGET_NAME})
+elseif(APPLE)
+    add_library(WickedEngine_MacOS ALIAS ${TARGET_NAME})
 else()
     add_library(WickedEngine_Linux ALIAS ${TARGET_NAME})
 endif()
@@ -237,6 +265,28 @@ if (WIN32)
     )
 
     set(LIBDXCOMPILER "dxcompiler.dll")
+elseif(APPLE)
+    target_link_libraries(WickedEngine_common PUBLIC
+        Threads::Threads
+        $<$<BOOL:${OpenImageDenoise_FOUND}>:OpenImageDenoise>
+        "-framework AppKit"
+        "-framework ApplicationServices"
+        "-framework CoreGraphics"
+        "-framework Foundation"
+        "-framework GameController"
+        "-framework Metal"
+        "-framework QuartzCore"
+    )
+
+    if(TARGET FAudio)
+        set_target_properties(FAudio PROPERTIES
+            POSITION_INDEPENDENT_CODE ${WICKED_PIC}
+            UNITY_BUILD NO
+        )
+        set(WICKEDENGINE_STATIC_LIBRARIES ${WICKEDENGINE_STATIC_LIBRARIES} FAudio)
+    endif()
+
+    set(LIBDXCOMPILER "libdxcompiler.dylib")
 else ()
     # `ska::flat_hash_map` has issues on linux because of the hash function being identity
     # in same cases. Use `robin_hood::unordered_flat_map` instead

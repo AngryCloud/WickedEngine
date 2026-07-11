@@ -14,9 +14,6 @@
 /Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/WickedEngine/Utility/CMakeFiles/Utility.dir
 /Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/WickedEngine/Utility/CMakeFiles/edit_cache.dir
 /Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/WickedEngine/Utility/CMakeFiles/rebuild_cache.dir
-/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/WickedEngine/Utility/FAudio/CMakeFiles/FAudio.dir
-/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/WickedEngine/Utility/FAudio/CMakeFiles/edit_cache.dir
-/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/WickedEngine/Utility/FAudio/CMakeFiles/rebuild_cache.dir
 /Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/Samples/DmoClientMac/CMakeFiles/dmo_wicked_ui_min.dir
 /Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/Samples/DmoClientMac/CMakeFiles/DmoClientMac.dir
 /Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/Samples/DmoClientMac/CMakeFiles/edit_cache.dir

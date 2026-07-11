@@ -1375,8 +1375,8 @@ using namespace metal_internal;
 		adapterName = device->name()->cString(NS::UTF8StringEncoding);
 		
 		textureUlongAtomics =
-			device->supportsFamily(MTL::GPUFamilyApple8) |
-			device->supportsFamily(MTL::GPUFamilyApple9) |
+			device->supportsFamily(MTL::GPUFamilyApple8) ||
+			device->supportsFamily(MTL::GPUFamilyApple9) ||
 			device->supportsFamily(MTL::GPUFamilyMac2)
 		;
 		

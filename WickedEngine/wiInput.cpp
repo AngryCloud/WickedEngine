@@ -662,10 +662,11 @@ namespace wi::input
 				return mouse.delta_wheel < -0.1f;
 			}
 
-			uint16_t keycode = (uint16_t)button;
+			const int button_code = static_cast<int>(button);
+			uint16_t keycode = static_cast<uint16_t>(button_code);
 			constexpr uint16_t unknown = 65535;
 
-			switch (button)
+			switch (button_code)
 			{
 			case wi::input::MOUSE_BUTTON_LEFT:
 				if (mouse.left_button_press) 
