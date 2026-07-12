@@ -37,6 +37,9 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedCharacterSheetController.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedConversationPanelController.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedChatWindowController.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedServicePointController.cpp
+    # Client read-model store — the seam a server-snapshot transport writes to.
+    ${DMO_CLIENT_ROOT}/Source/UI/ReadModel/WickedClientReadModelStore.cpp
     # Integrated pre-existing portable Journal presenter layer (Source/Presenters).
     ${DMO_CLIENT_ROOT}/Source/Presenters/WickedJournalBookShell.cpp
     ${DMO_CLIENT_ROOT}/Source/Presenters/WickedJournalTabPresenter.cpp
