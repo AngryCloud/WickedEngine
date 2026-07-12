@@ -56,13 +56,44 @@ public:
 
         widget->SetPos(XMFLOAT2(v.x, v.y));
         widget->SetSize(XMFLOAT2(v.width, v.height));
-        widget->SetColor(wi::Color::fromFloat4(XMFLOAT4(v.colorR, v.colorG, v.colorB, v.colorA * v.alpha)));
 
+        // The projector emits ONE resolved color per widget, but wi::gui widgets
+        // have a distinct background fill (SetColor) and text color (font.params).
+        // Interpret the color by kind so text isn't drawn as a filled bar:
+        //   - Text  -> the color is the FONT color; background stays transparent
+        //              so the panel behind shows through (dark panel + light text).
+        //   - Button/panel/field -> the color fills the background; give buttons a
+        //              light label so it reads against the dark surface.
+        const wi::Color themed =
+            wi::Color::fromFloat4(XMFLOAT4(v.colorR, v.colorG, v.colorB, v.colorA * v.alpha));
+        if (v.typeOrdinal == kTypeText)
+        {
+            widget->SetColor(wi::Color::fromFloat4(XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f)));
+            widget->font.params.color = themed;
+        }
+        else
+        {
+            widget->SetColor(themed);
+            if (v.typeOrdinal == kTypeButton)
+                widget->font.params.color = wi::Color::fromFloat4(XMFLOAT4(0.92f, 0.92f, 0.95f, 1.0f));
+        }
+
+        // NOTE: do NOT AddWidget here. wi::gui z-orders first-added as frontmost, but the
+        // projector emits parent(backdrop)-before-children, so we defer and add reversed
+        // (see DmoFrontDoorPath::Reproject) — else the backdrop paints over every child.
         wi::gui::Widget* raw = widget.get();
-        if (gui != nullptr)
-            gui->AddWidget(raw);
         owned.push_back(std::move(widget));
         return raw;
+    }
+
+    // Detach + free all widgets so the tree can be re-projected (controller state
+    // changed, e.g. a status line update after a sign-in click).
+    void Clear()
+    {
+        if (gui != nullptr)
+            for (auto& w : owned)
+                gui->RemoveWidget(w.get());
+        owned.clear();
     }
 };
 
@@ -73,12 +104,65 @@ public:
     {
         wi::RenderPath2D::Load();
         m_sink.gui = &GetGUI();
-        const std::size_t n = WickedUI::ProjectFrontDoorHost(m_sink);
-        std::fprintf(stderr, "[DmoClient] auth screen projected: %zu widgets\n", n);
+        const std::size_t n = Reproject();
+        m_lastToken = WickedUI::FrontDoorStateToken();
+        std::fprintf(stderr, "[DmoClient] front door projected: %zu widgets\n", n);
+    }
+
+    void Update(float dt) override
+    {
+        // A state change last frame (screen transition, status text, or animation)
+        // needs a rebuild: do it at the top of the frame, BEFORE the GUI updates,
+        // so the teardown never races a press wi::gui is still tracking (freeing a
+        // pressed widget mid-frame corrupts the GUI).
+        if (m_reprojectPending)
+        {
+            const std::size_t n = Reproject();
+            std::fprintf(stderr, "[DmoClient] reprojected: %zu widgets\n", n);
+            m_reprojectPending = false;
+        }
+
+        wi::RenderPath2D::Update(dt);
+
+        // Advance controllers (Refresh/animation — e.g. the loading bar).
+        WickedUI::TickFrontDoor(dt);
+
+        // Forward a left-click press edge to the shim host. wi::gui hit-tests
+        // GetPointer() directly against widget rects in SetPos space (the
+        // projector's logical UI pixels), so the pointer needs NO DPI conversion.
+        if (wi::input::Press(wi::input::MOUSE_BUTTON_LEFT))
+        {
+            const XMFLOAT4 p = wi::input::GetPointer();
+            WickedUI::DispatchFrontDoorClick(p.x, p.y);
+        }
+
+        // One unified re-projection trigger: the state token changes on any screen
+        // transition, status update, or animation frame.
+        const std::uint64_t token = WickedUI::FrontDoorStateToken();
+        if (token != m_lastToken)
+        {
+            m_lastToken = token;
+            m_reprojectPending = true;
+        }
     }
 
 private:
+    // Clear + re-project the front-door host through the sink, then (re)attach the
+    // widgets to the GUI. Add reversed: the projector emits backdrop→children
+    // (back→front logically), but wi::gui treats the first-added widget as
+    // frontmost, so reverse to keep the full-screen backdrop at the back.
+    std::size_t Reproject()
+    {
+        m_sink.Clear();
+        const std::size_t n = WickedUI::ProjectFrontDoorHost(m_sink);
+        for (auto it = m_sink.owned.rbegin(); it != m_sink.owned.rend(); ++it)
+            GetGUI().AddWidget(it->get());
+        return n;
+    }
+
     WiGuiSink m_sink;
+    bool m_reprojectPending = false;
+    std::uint64_t m_lastToken = 0; // last projected front-door state token
 };
 
 } // namespace

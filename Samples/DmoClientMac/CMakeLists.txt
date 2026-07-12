@@ -26,6 +26,20 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/UI/Projection/WickedGuiProjector.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Projection/WickedDemoScreen.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedAuthScreenController.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedCharacterSelectController.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedCharacterCreateController.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedLoadingController.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedWorldBackdropController.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedHudController.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedMenuWindowController.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedInventoryWindowController.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedJournalWindowController.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedCharacterSheetController.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedConversationPanelController.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedChatWindowController.cpp
+    # Integrated pre-existing portable Journal presenter layer (Source/Presenters).
+    ${DMO_CLIENT_ROOT}/Source/Presenters/WickedJournalBookShell.cpp
+    ${DMO_CLIENT_ROOT}/Source/Presenters/WickedJournalTabPresenter.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Projection/WickedFrontDoorHost.cpp
 )
 target_include_directories(dmo_wicked_ui_min PRIVATE
