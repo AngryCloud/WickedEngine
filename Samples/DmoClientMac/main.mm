@@ -16,9 +16,78 @@
 
 #include "WickedEngine.h"
 #include "DmoClientRenderPath.h"
+#include "wiGraphicsDevice_Metal.h"
 
 #import <AppKit/AppKit.h>
 #include <Carbon/Carbon.h>
+
+#include <cstdlib>
+#include <cstdio>
+
+// Offscreen visual-verification path (DMO_UI_SHOT=<out.png>).
+//
+// Mac is a first-class DMO client target, so every UI screen must be verifiable
+// on this machine — including from an automated/agent/CI context that has no
+// WindowServer connection (a non-GUI shell cannot attach an NSWindow). We do NOT
+// need a window to see pixels: the Metal device creates fine headlessly and
+// RenderPath2D renders its GUI into an OFFSCREEN target (rtFinal) before Compose
+// ever touches a swapchain. So we create the device, load the front-door path,
+// pump a few frames into rtFinal, and write it to a PNG. Same render code the
+// windowed client runs — just captured instead of presented.
+static int RunOffscreenShot(const char* outPath)
+{
+	using namespace wi::graphics;
+
+	// 0. Point the shader loader at the precompiled Metal library dir. wi::Application
+	//    does this in its device-init path (wiApplication.cpp, PLATFORM_APPLE); since we
+	//    bypass Application we must do it ourselves, else pipelines get null shaders
+	//    (no runtime dxcompiler on macOS) and CreatePipelineState segfaults.
+	wi::renderer::SetShaderPath(wi::renderer::GetShaderPath() + "metal/");
+
+	// 1. Metal device — no window/swapchain needed (only CreateSwapChain wants one).
+	static std::unique_ptr<GraphicsDevice> device =
+		std::make_unique<GraphicsDevice_Metal>(ValidationMode::Disabled, GPUPreference::Discrete);
+	GetDevice() = device.get();
+
+	// 2. Bring up the subsystems the front-door GUI needs. wi::renderer::Initialize()
+	//    is REQUIRED: it sets wi::renderer's internal device pointer, which
+	//    wi::renderer::LoadShader() gates on — image/font shaders won't load without it
+	//    (null VS → CreatePipelineState segfault). Its 3D object PSOs are built lazily, so
+	//    this alone is safe. We deliberately DO NOT init the eager 3D systems
+	//    (ocean/particles/BVH/gaussian/hair/trail/physics): several of their Metal pipeline
+	//    shaders are absent in this build, and the wi::gui sink (images + fonts) never
+	//    touches them.
+	wi::renderer::Initialize();
+	wi::texturehelper::Initialize();
+	wi::image::Initialize();
+	wi::font::Initialize();
+	wi::input::Initialize();
+
+	// 3. Size the path canvas (the GUI + rtFinal derive their extent from it) and project.
+	wi::RenderPath2D& path = DmoClient::FrontDoorPath();
+	path.init(1280, 800, 96.0f);
+	wi::font::UpdateAtlas(path.GetDPIScaling());
+	path.Load();
+
+	// 4. Pump frames — controllers advance, then render GUI into rtFinal. A handful of
+	//    frames lets deferred reprojection + in-place value updates settle before capture.
+	for (int i = 0; i < 8; ++i)
+	{
+		path.PreUpdate();
+		path.Update(1.0f / 60.0f);
+		path.PostUpdate();
+		path.PreRender();
+		path.Render();
+		path.PostRender();
+		device->SubmitCommandLists();
+	}
+
+	// 5. Read back the offscreen 2D result → PNG.
+	const bool ok = wi::helper::saveTextureToFile(path.GetRenderResult2D(), outPath);
+	std::fprintf(stderr, "[DmoClient] offscreen shot %s -> %s\n", ok ? "OK" : "FAIL", outPath);
+	wi::jobsystem::ShutDown();
+	return ok ? 0 : 1;
+}
 
 // Load + activate the DMO front-door path once the engine is initialized
 // (the engine never auto-calls RenderPath::Load — see Editor::Initialize).
@@ -42,6 +111,14 @@ bool running = true;
 
 int main(int argc, char* argv[])
 {
+	// Headless visual capture: no NSApplication / window at all.
+	if (const char* shotPath = std::getenv("DMO_UI_SHOT"))
+	{
+		@autoreleasepool {
+			return RunOffscreenShot(shotPath);
+		}
+	}
+
 	@autoreleasepool {
 		[NSApplication sharedApplication];
 		[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];

@@ -1167,8 +1167,16 @@ using namespace metal_internal;
 		
 		PipelineHash pipeline_hash = commandlist.pipeline_hash;
 		const PipelineState* pso = commandlist.active_pso;
+		// No valid PSO bound (e.g. it referenced a shader that failed to load, so the bind
+		// was skipped). Skip the just-in-time validation rather than dereferencing null —
+		// the corresponding draw simply produces nothing.
+		if (pso == nullptr || !pso->IsValid())
+		{
+			commandlist.dirty_pso = false;
+			return;
+		}
 		auto internal_state = to_internal(pso);
-		
+
 		if (internal_state->render_pipeline.get() == nullptr)
 		{
 			// Just in time PSO:
@@ -2314,6 +2322,21 @@ using namespace metal_internal;
 	}
 	bool GraphicsDevice_Metal::CreatePipelineState(const PipelineStateDesc* desc, PipelineState* pso, const RenderPassInfo* renderpass_info) const
 	{
+		// Fail gracefully if a referenced shader stage is present but failed to load
+		// (IsValid()==false → null internal state). The per-stage setup below dereferences
+		// shader_internal->function, so an unloaded shader would segfault. Returning false
+		// with the PSO left invalid means callers that never bind it (e.g. 3D features whose
+		// Metal shaders are absent in this build) keep running, while the valid 2D image/font
+		// PSOs build normally. This is what lets the client come up when shaders/metal/ is a
+		// partial set (as on the UI-only build path).
+		auto stage_failed = [](const Shader* s) { return s != nullptr && !s->IsValid(); };
+		if (stage_failed(desc->vs) || stage_failed(desc->ps) || stage_failed(desc->ds) ||
+			stage_failed(desc->hs) || stage_failed(desc->gs) || stage_failed(desc->ms) ||
+			stage_failed(desc->as))
+		{
+			return false;
+		}
+
 		auto internal_state = wi::allocator::make_shared<PipelineState_Metal>();
 		internal_state->allocationhandler = allocationhandler;
 		pso->internal_state = internal_state;
@@ -3856,6 +3879,15 @@ using namespace metal_internal;
 	}
 	void GraphicsDevice_Metal::BindPipelineState(const PipelineState* pso, CommandList cmd)
 	{
+		// Skip PSOs that never got created (e.g. their shader failed to load, so
+		// CreatePipelineState() returned false and left internal_state null). to_internal()
+		// would return null and the deref below would segfault. No-op keeps the frame alive;
+		// valid PSOs (the 2D image/font primitives) bind and draw normally.
+		if (pso == nullptr || !pso->IsValid())
+		{
+			return;
+		}
+
 		CommandList_Metal& commandlist = GetCommandList(cmd);
 		auto internal_state = to_internal(pso);
 		
@@ -3902,7 +3934,12 @@ using namespace metal_internal;
 	void GraphicsDevice_Metal::Draw(uint32_t vertexCount, uint32_t startVertexLocation, CommandList cmd)
 	{
 		CommandList_Metal& commandlist = GetCommandList(cmd);
-		
+		// No valid pipeline bound (its shader failed to load, so the bind/validate was
+		// skipped). Issuing the draw would hit Metal's drawPrimitives with no pipeline set
+		// and crash inside the driver. Skip the draw — it simply renders nothing.
+		if (commandlist.active_pso == nullptr || !commandlist.active_pso->IsValid())
+			return;
+
 		if (commandlist.gs_desc.basePipelineDescriptor != nullptr)
 		{
 			// IRRuntimeDrawPrimitivesGeometryEmulation Metal4 port:
@@ -3968,7 +4005,9 @@ using namespace metal_internal;
 	void GraphicsDevice_Metal::DrawIndexed(uint32_t indexCount, uint32_t startIndexLocation, int32_t baseVertexLocation, CommandList cmd)
 	{
 		CommandList_Metal& commandlist = GetCommandList(cmd);
-		const uint64_t index_stride = commandlist.index_type == MTL::IndexTypeUInt32 ? sizeof(uint32_t) : sizeof(uint16_t);
+		if (commandlist.active_pso == nullptr || !commandlist.active_pso->IsValid())
+			return; // no valid pipeline bound — skip draw (see Draw())
+const uint64_t index_stride = commandlist.index_type == MTL::IndexTypeUInt32 ? sizeof(uint32_t) : sizeof(uint16_t);
 		const uint64_t indexBufferOffset = startIndexLocation * index_stride;
 		
 		if (commandlist.gs_desc.basePipelineDescriptor != nullptr)
@@ -4040,7 +4079,9 @@ using namespace metal_internal;
 	void GraphicsDevice_Metal::DrawInstanced(uint32_t vertexCount, uint32_t instanceCount, uint32_t startVertexLocation, uint32_t startInstanceLocation, CommandList cmd)
 	{
 		CommandList_Metal& commandlist = GetCommandList(cmd);
-		
+		if (commandlist.active_pso == nullptr || !commandlist.active_pso->IsValid())
+			return; // no valid pipeline bound — skip draw (see Draw())
+
 		if (commandlist.gs_desc.basePipelineDescriptor != nullptr)
 		{
 			// IRRuntimeDrawPrimitivesGeometryEmulation Metal4 port:
@@ -4106,7 +4147,9 @@ using namespace metal_internal;
 	void GraphicsDevice_Metal::DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount, uint32_t startIndexLocation, int32_t baseVertexLocation, uint32_t startInstanceLocation, CommandList cmd)
 	{
 		CommandList_Metal& commandlist = GetCommandList(cmd);
-		const uint64_t index_stride = commandlist.index_type == MTL::IndexTypeUInt32 ? sizeof(uint32_t) : sizeof(uint16_t);
+		if (commandlist.active_pso == nullptr || !commandlist.active_pso->IsValid())
+			return; // no valid pipeline bound — skip draw (see Draw())
+const uint64_t index_stride = commandlist.index_type == MTL::IndexTypeUInt32 ? sizeof(uint32_t) : sizeof(uint16_t);
 		const uint64_t indexBufferOffset = startIndexLocation * index_stride;
 		
 		if (commandlist.gs_desc.basePipelineDescriptor != nullptr)
