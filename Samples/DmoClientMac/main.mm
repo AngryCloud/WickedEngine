@@ -63,16 +63,33 @@ static int RunOffscreenShot(const char* outPath)
 	wi::font::Initialize();
 	wi::input::Initialize();
 
-	// 3. Size the path canvas (the GUI + rtFinal derive their extent from it) and project.
+	// 3. Optional boot-screen selector (DMO_UI_SHOT_SCREEN=<k*ScreenId>): capture a
+	//    specific front-door/window screen instead of the default (auth). Must be set
+	//    before Load() triggers the one-time host mount.
+	if (const char* screenEnv = std::getenv("DMO_UI_SHOT_SCREEN"))
+	{
+		const long id = std::strtol(screenEnv, nullptr, 10);
+		if (id > 0)
+		{
+			DmoClient::SetBootScreen(static_cast<std::uint32_t>(id));
+			std::fprintf(stderr, "[DmoClient] offscreen boot screen = %ld\n", id);
+		}
+	}
+
+	// 4. Size the path canvas (the GUI + rtFinal derive their extent from it) and project.
 	wi::RenderPath2D& path = DmoClient::FrontDoorPath();
 	path.init(1280, 800, 96.0f);
-	wi::font::UpdateAtlas(path.GetDPIScaling());
 	path.Load();
 
-	// 4. Pump frames — controllers advance, then render GUI into rtFinal. A handful of
-	//    frames lets deferred reprojection + in-place value updates settle before capture.
+	// 4. Pump frames — controllers advance, then render GUI into rtFinal. wi::font
+	//    rasterizes glyphs LAZILY: a glyph is queued when text is drawn (inside Render),
+	//    and UpdateAtlas() rasterizes the queued glyphs for the NEXT frame. So UpdateAtlas
+	//    must run every frame (as wi::Application does) — calling it only once up front
+	//    leaves the atlas empty and text renders as blank fills. Pumping a handful of
+	//    frames also lets deferred reprojection + in-place value updates settle.
 	for (int i = 0; i < 8; ++i)
 	{
+		wi::font::UpdateAtlas(path.GetDPIScaling());
 		path.PreUpdate();
 		path.Update(1.0f / 60.0f);
 		path.PostUpdate();

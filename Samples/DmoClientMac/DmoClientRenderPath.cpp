@@ -216,4 +216,11 @@ wi::RenderPath2D& FrontDoorPath()
     return path;
 }
 
+void SetBootScreen(std::uint32_t screenId)
+{
+    // Forward to the front-door host's boot-screen override. Keeps main.mm free of
+    // DMO UI headers (it only knows DmoClient).
+    WickedUI::SetFrontDoorBootScreen(screenId);
+}
+
 } // namespace DmoClient
