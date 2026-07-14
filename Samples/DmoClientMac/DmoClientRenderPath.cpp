@@ -21,7 +21,52 @@
 namespace {
 
 // Frozen WickedUIWidgetType ordinals we special-case (see WickedUIWidgetTypes.h).
-enum : int { kTypeText = 1, kTypeButton = 2 };
+enum : int {
+    kTypePage = 0,
+    kTypeText = 1,
+    kTypeButton = 2,
+    kTypeComposite = 6,
+    kTypeList = 7,
+    kTypeTable = 8,
+    kTypeTreeView = 12,
+    kTypeNinePatchFrame = 17,
+};
+
+bool IsStructuralContainer(const WickedUI::WickedUIWidgetVisual& v) noexcept
+{
+    switch (v.typeOrdinal)
+    {
+    case kTypePage:
+    case kTypeComposite:
+    case kTypeList:
+    case kTypeTable:
+    case kTypeTreeView:
+    case kTypeNinePatchFrame:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool IsEffectivelyTransparent(const WickedUI::WickedUIWidgetVisual& v) noexcept
+{
+    return (v.colorA * v.alpha) <= 0.001f;
+}
+
+bool HasRenderableContent(const WickedUI::WickedUIWidgetVisual& v) noexcept
+{
+    return (v.text != nullptr && v.text[0] != '\0') ||
+           (v.imagePath != nullptr && v.imagePath[0] != '\0');
+}
+
+bool ShouldElideVisual(const WickedUI::WickedUIWidgetVisual& v) noexcept
+{
+    // The portable host uses these nodes as layout containers only. Materializing
+    // them into top-level wi::gui widgets creates giant invisible hitboxes that can
+    // steal focus and destabilize the live Mac sample when users click outside the
+    // visible UI chrome. Skip them entirely unless they actually draw something.
+    return IsStructuralContainer(v) && IsEffectivelyTransparent(v) && !HasRenderableContent(v);
+}
 
 // Materializes each projected visual as a wi::gui widget and owns their lifetime
 // (the GUI only borrows the raw pointers).
@@ -30,6 +75,52 @@ class WiGuiSink final : public WickedUI::IWickedUIWidgetVisualSink
 public:
     wi::gui::GUI* gui = nullptr;
     std::vector<std::unique_ptr<wi::gui::Widget>> owned;
+
+    class PassiveLabel final : public wi::gui::Label
+    {
+    public:
+        void Update(const wi::Canvas& canvas, float dt) override
+        {
+            // Render-only projection surface: keep Wicked's transform/font/sprite
+            // bookkeeping, but deliberately skip Label's interactive logic so large
+            // backdrop widgets never participate in focus, click, scroll, or z-order
+            // churn.
+            Widget::Update(canvas, dt);
+
+            switch (font.params.h_align)
+            {
+            case wi::font::WIFALIGN_LEFT:
+                font.params.posX = translation.x + 2.0f;
+                break;
+            case wi::font::WIFALIGN_RIGHT:
+                font.params.posX = translation.x + scale.x - 2.0f;
+                break;
+            case wi::font::WIFALIGN_CENTER:
+            default:
+                font.params.posX = translation.x + scale.x * 0.5f;
+                break;
+            }
+
+            switch (font.params.v_align)
+            {
+            case wi::font::WIFALIGN_TOP:
+                font.params.posY = translation.y + 2.0f;
+                break;
+            case wi::font::WIFALIGN_BOTTOM:
+                font.params.posY = translation.y + scale.y - 2.0f;
+                break;
+            case wi::font::WIFALIGN_CENTER:
+            default:
+                font.params.posY = translation.y + scale.y * 0.5f;
+                break;
+            }
+
+            if (font.params.h_align != wi::font::WIFALIGN_CENTER)
+                font.params.h_wrap = scale.x - 4.0f;
+            else
+                font.params.h_wrap = -1.0f;
+        }
+    };
 
     // Push a resolved visual's text/rect/color onto a widget (shared by create +
     // in-place update). The projector emits ONE color per widget; wi::gui splits it
@@ -44,6 +135,17 @@ public:
         w.SetText(v.typeOrdinal == kTypeButton || v.typeOrdinal == kTypeText ? text : "");
         w.SetPos(XMFLOAT2(v.x, v.y));
         w.SetSize(XMFLOAT2(v.width, v.height));
+
+        if (v.typeOrdinal == kTypeButton)
+        {
+            w.font.params.h_align = wi::font::WIFALIGN_CENTER;
+            w.font.params.v_align = wi::font::WIFALIGN_CENTER;
+        }
+        else
+        {
+            w.font.params.h_align = wi::font::WIFALIGN_LEFT;
+            w.font.params.v_align = wi::font::WIFALIGN_TOP;
+        }
 
         const wi::Color themed =
             wi::Color::fromFloat4(XMFLOAT4(v.colorR, v.colorG, v.colorB, v.colorA * v.alpha));
@@ -78,24 +180,22 @@ public:
         }
     }
 
-    void* CreateVisual(const WickedUI::WickedUIWidgetVisual& v, void* /*parent*/) override
+    void* CreateVisual(const WickedUI::WickedUIWidgetVisual& v, void* parentHandle) override
     {
+        if (ShouldElideVisual(v))
+            return nullptr;
+
         // The projector already resolves absolute coordinates, so every widget is
         // added flat to the GUI at its absolute position (no wi parenting needed).
         std::unique_ptr<wi::gui::Widget> widget;
         const char* name = v.name ? v.name : "";
-        if (v.typeOrdinal == kTypeButton)
-        {
-            auto b = std::make_unique<wi::gui::Button>();
-            b->Create(name);
-            widget = std::move(b);
-        }
-        else // Text label, or a panel/backdrop rendered as a colored label rect.
-        {
-            auto l = std::make_unique<wi::gui::Label>();
-            l->Create(name);
-            widget = std::move(l);
-        }
+        // The portable host owns all interaction semantics and hit-testing. The
+        // engine-linked sink is strictly a render surface, so use labels for every
+        // projected node instead of live wi::gui buttons. This avoids a second,
+        // conflicting button state machine mutating visuals when the user clicks.
+        auto l = std::make_unique<PassiveLabel>();
+        l->Create(name);
+        widget = std::move(l);
         ApplyVisual(*widget, v);
 
         // NOTE: do NOT AddWidget here. wi::gui z-orders first-added as frontmost, but the
@@ -140,35 +240,66 @@ public:
 
     void Update(float dt) override
     {
+        const bool mousePressed = wi::input::Press(wi::input::MOUSE_BUTTON_LEFT);
+        const bool mouseReleased = wi::input::Release(wi::input::MOUSE_BUTTON_LEFT);
+        const bool mouseHeld = wi::input::Down(wi::input::MOUSE_BUTTON_LEFT);
+        const XMFLOAT4 pointer = wi::input::GetPointer();
+        const bool pointerMoved =
+            !m_hasLastPointer ||
+            pointer.x != m_lastPointerX ||
+            pointer.y != m_lastPointerY;
+
         // STRUCTURAL rebuild (screens mounted/unmounted) is the only path that tears
         // down + recreates wi::gui widgets. Do it at the top of the frame, and NEVER
-        // while the mouse is held — freeing a widget wi::gui is tracking for a press
-        // corrupts the GUI (this was the "UI disappears on click" failure). Value
-        // changes (vitals/chat/status) go through the in-place path below instead, so
-        // they never destroy a widget the user is pressing.
-        const bool mouseHeld = wi::input::Down(wi::input::MOUSE_BUTTON_LEFT);
-        if (m_reprojectPending && !mouseHeld)
+        // while the mouse is in a press/release transition — freeing a widget while
+        // Wicked GUI still has per-frame interaction bookkeeping for it corrupts the
+        // GUI (this was the "UI disappears on click" failure). We require one fully
+        // idle frame after the transition before rebuilding. Value changes
+        // (vitals/chat/status) go through the in-place path below instead, so they
+        // never destroy a widget on the interaction frame.
+        if (m_reprojectPending)
         {
-            const std::size_t n = Reproject();
-            std::fprintf(stderr, "[DmoClient] reprojected: %zu widgets\n", n);
-            m_reprojectPending = false;
-            m_lastStructureToken = WickedUI::FrontDoorStructureToken();
-            m_lastValueToken = WickedUI::FrontDoorStateToken(); // fresh tree = current values
+            if (mouseHeld || mousePressed || mouseReleased)
+            {
+                m_waitForIdleMouseFrame = true;
+            }
+            else if (m_waitForIdleMouseFrame)
+            {
+                m_waitForIdleMouseFrame = false;
+            }
+            else
+            {
+                const std::size_t n = Reproject();
+                std::fprintf(stderr, "[DmoClient] reprojected: %zu widgets\n", n);
+                m_reprojectPending = false;
+                m_lastStructureToken = WickedUI::FrontDoorStructureToken();
+                m_lastValueToken = WickedUI::FrontDoorStateToken(); // fresh tree = current values
+            }
         }
 
         wi::RenderPath2D::Update(dt);
 
         // Advance controllers (Refresh/animation — e.g. the loading bar).
         WickedUI::TickFrontDoor(dt);
+        // Keep the engine-linked sink visually authoritative every frame. The
+        // portable host owns the real widget tree, so re-applying the current POD
+        // visuals is cheap and prevents any local wi::gui state drift from leaving
+        // stale or vanished labels after incidental clicks.
+        WickedUI::UpdateFrontDoorHost(m_sink);
 
-        // Forward a left-click press edge to the shim host. wi::gui hit-tests
+        // Forward real pointer events to the shim host. wi::gui hit-tests
         // GetPointer() directly against widget rects in SetPos space (the
         // projector's logical UI pixels), so the pointer needs NO DPI conversion.
-        if (wi::input::Press(wi::input::MOUSE_BUTTON_LEFT))
-        {
-            const XMFLOAT4 p = wi::input::GetPointer();
-            WickedUI::DispatchFrontDoorClick(p.x, p.y);
-        }
+        if (pointerMoved)
+            WickedUI::DispatchFrontDoorMouseMove(pointer.x, pointer.y);
+        if (mousePressed)
+            WickedUI::DispatchFrontDoorMouseDown(pointer.x, pointer.y);
+        if (mouseReleased)
+            WickedUI::DispatchFrontDoorMouseUp(pointer.x, pointer.y);
+
+        m_lastPointerX = pointer.x;
+        m_lastPointerY = pointer.y;
+        m_hasLastPointer = true;
 
         // Decide what changed. A STRUCTURE change (mount/unmount) needs a rebuild
         // (deferred to next frame's guarded top). A VALUE-only change updates the
@@ -181,7 +312,6 @@ public:
         }
         else if (valueToken != m_lastValueToken)
         {
-            WickedUI::UpdateFrontDoorHost(m_sink); // in-place; no teardown
             m_lastValueToken = valueToken;
         }
     }
@@ -202,6 +332,10 @@ private:
 
     WiGuiSink m_sink;
     bool m_reprojectPending = false;
+    bool m_waitForIdleMouseFrame = false;
+    bool m_hasLastPointer = false;
+    float m_lastPointerX = 0.0f;
+    float m_lastPointerY = 0.0f;
     std::uint64_t m_lastStructureToken = 0; // last built screen-stack structure
     std::uint64_t m_lastValueToken = 0;     // last applied value snapshot
 };
