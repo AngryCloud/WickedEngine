@@ -335,7 +335,11 @@ static int RunOffscreenItemBake(const char* outPath)
 
 	// 6. Read back the bake camera's self-contained render-to-texture result (the editor
 	//    thumbnail target) → PNG.
-	const Texture& shot = bakeCam->render_to_texture.rendertarget_display;
+	// render↔display double-buffer swaps BEFORE the pass renders, so display holds the
+	// pre-render (cleared) buffer; the freshly-rendered content is in rendertarget_render.
+	const Texture& displayTgt = bakeCam->render_to_texture.rendertarget_display;
+	const Texture& renderTgt = bakeCam->render_to_texture.rendertarget_render;
+	const Texture& shot = renderTgt.IsValid() ? renderTgt : displayTgt;
 	if (std::getenv("DMO_ITEM_BAKE_DEBUG") != nullptr)
 	{
 		const Texture composed = CaptureComposedBakeTexture(path, bakeW, bakeH);

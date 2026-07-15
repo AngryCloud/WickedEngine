@@ -374,3 +374,15 @@
 91	1595	1784085060525162280	Samples/DmoClientMac/CMakeFiles/dmo_wicked_ui_min.dir/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/Source/UI/Screens/WickedCharacterSheetController.cpp.o	e7716d863b4f3f93
 1595	1700	1784085062029418506	Samples/DmoClientMac/libdmo_wicked_ui_min.a	bd218e09055397af
 1700	1940	1784085062134395539	Samples/DmoClientMac/DmoClientMac	b5675319fb9d13ae
+58	145	1784085238318775022	/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/CMakeFiles/cmake.verify_globs	23ce529b3b5e687
+6	35	1784085246989231973	/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/CMakeFiles/cmake.verify_globs	23ce529b3b5e687
+19	49	1784085475052103444	/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/CMakeFiles/cmake.verify_globs	23ce529b3b5e687
+143	13048	1784085475176156708	Samples/DmoClientMac/CMakeFiles/DmoClientMac.dir/main.mm.o	6e65e05b06995339
+13048	13388	1784085488084735393	Samples/DmoClientMac/DmoClientMac	b5675319fb9d13ae
+22	76	1784085707739881817	/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/CMakeFiles/cmake.verify_globs	23ce529b3b5e687
+9	53	1784086173150716985	/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/CMakeFiles/cmake.verify_globs	23ce529b3b5e687
+132	1057	1784086173273814090	Samples/DmoClientMac/CMakeFiles/dmo_wicked_ui_min.dir/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/Source/UI/Theme/WickedUIThemePack.cpp.o	553efbba5aa57d74
+133	1906	1784086173274240967	Samples/DmoClientMac/CMakeFiles/dmo_wicked_ui_min.dir/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/Source/UI/Screens/WickedInventoryWindowController.cpp.o	616f3c6b7b4875d3
+1907	2010	1784086175048193613	Samples/DmoClientMac/libdmo_wicked_ui_min.a	bd218e09055397af
+2010	2278	1784086175151786366	Samples/DmoClientMac/DmoClientMac	b5675319fb9d13ae
+7	44	1784086250838397007	/Users/jubalbiggs/Documents/GitHub/DMO-WICKED-Client/external/WickedEngine/build-dmo-validation/CMakeFiles/cmake.verify_globs	23ce529b3b5e687
