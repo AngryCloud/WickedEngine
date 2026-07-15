@@ -16,13 +16,126 @@
 
 #include "WickedEngine.h"
 #include "DmoClientRenderPath.h"
+#include "Inventory/WickedInventoryRuntimeServices.h"
 #include "wiGraphicsDevice_Metal.h"
+#include "wiRenderPath3D.h"
+#include "wiScene.h"
+#include "wiPhysics.h"
 
 #import <AppKit/AppKit.h>
 #include <Carbon/Carbon.h>
 
+#include <cmath>
 #include <cstdlib>
 #include <cstdio>
+#include <filesystem>
+#include <memory>
+#include <string>
+
+static wi::scene::CameraComponent BuildBakeCamera(const XMFLOAT3& boundsCenter,
+	const float boundsRadius,
+	const int width,
+	const int height)
+{
+	const float cameraDistance = boundsRadius * 2.0f;
+	const float horizontalAngle = wi::math::DegreesToRadians(-50.0f);
+	const float elevationAngle = wi::math::DegreesToRadians(20.0f);
+	const float horizontalDistance = cameraDistance * std::cos(elevationAngle);
+	const float verticalOffset = cameraDistance * std::sin(elevationAngle);
+
+	const XMFLOAT3 cameraPosition = XMFLOAT3(
+		boundsCenter.x + horizontalDistance * std::cos(horizontalAngle),
+		boundsCenter.y + verticalOffset,
+		boundsCenter.z + horizontalDistance * std::sin(horizontalAngle));
+
+	wi::scene::TransformComponent cameraTransform;
+	cameraTransform.Translate(XMLoadFloat3(&cameraPosition));
+	cameraTransform.UpdateTransform();
+
+	const XMVECTOR eye = XMLoadFloat3(&cameraPosition);
+	const XMVECTOR at = XMLoadFloat3(&boundsCenter);
+	const XMVECTOR up = XMVectorSet(0, 1, 0, 0);
+	const XMMATRIX view = XMMatrixLookAtLH(eye, at, up);
+	const XMMATRIX viewInv = XMMatrixInverse(nullptr, view);
+	XMStoreFloat4x4(&cameraTransform.world, viewInv);
+
+	wi::scene::CameraComponent camera;
+	camera.fov = wi::math::DegreesToRadians(60.0f);
+	camera.width = static_cast<float>(width);
+	camera.height = static_cast<float>(height);
+	camera.zNearP = 0.05f;
+	camera.zFarP = cameraDistance + boundsRadius * 4.0f;
+	camera.TransformCamera(cameraTransform);
+	camera.UpdateCamera();
+	return camera;
+}
+
+static std::string ResolveDmoClientMacShaderPath()
+{
+	namespace fs = std::filesystem;
+	const fs::path executablePath = wi::helper::GetExecutablePath();
+	const fs::path shaderPath = executablePath.parent_path() / "shaders" / "metal";
+	return shaderPath.string() + "/";
+}
+
+static wi::graphics::Texture CaptureComposedBakeTexture(const wi::RenderPath3D& path, int width, int height)
+{
+	using namespace wi::graphics;
+	GraphicsDevice* device = wi::graphics::GetDevice();
+
+	Texture composed;
+	TextureDesc desc;
+	desc.bind_flags = BindFlag::RENDER_TARGET | BindFlag::SHADER_RESOURCE;
+	desc.format = Format::R8G8B8A8_UNORM_SRGB;
+	desc.width = static_cast<uint32_t>(std::max(1, width));
+	desc.height = static_cast<uint32_t>(std::max(1, height));
+	device->CreateTexture(&desc, nullptr, &composed);
+
+	CommandList cmd = device->BeginCommandList();
+	RenderPassImage rp[] = {
+		RenderPassImage::RenderTarget(&composed, RenderPassImage::LoadOp::CLEAR)
+	};
+	device->RenderPassBegin(rp, 1, cmd);
+
+	Viewport vp;
+	vp.width = static_cast<float>(desc.width);
+	vp.height = static_cast<float>(desc.height);
+	device->BindViewports(1, &vp, cmd);
+
+	wi::graphics::Rect rect;
+	rect.left = 0;
+	rect.top = 0;
+	rect.right = static_cast<int32_t>(desc.width);
+	rect.bottom = static_cast<int32_t>(desc.height);
+	device->BindScissorRects(1, &rect, cmd);
+
+	path.Compose(cmd);
+
+	device->RenderPassEnd(cmd);
+	device->SubmitCommandLists();
+	return composed;
+}
+
+static void SaveBakeDebugTargets(wi::RenderPath3D& path,
+	const wi::graphics::Texture& composedTexture,
+	const std::string& outPath)
+{
+	namespace fs = std::filesystem;
+	if (std::getenv("DMO_ITEM_BAKE_DEBUG") == nullptr)
+		return;
+
+	const fs::path base(outPath);
+	const fs::path stem = base.parent_path() / base.stem();
+	const fs::path raw3D = stem.string() + ".raw3d.png";
+	const fs::path overlay2D = stem.string() + ".overlay2d.png";
+	const fs::path composed2D = stem.string() + ".composed2d.png";
+	const fs::path alpha2D = stem.string() + ".alpha2d.png";
+
+	(void)wi::helper::saveTextureToFile(path.GetRenderResult3D(), raw3D.string());
+	(void)wi::helper::saveTextureToFile(path.GetRenderResult2D(), overlay2D.string());
+	(void)wi::helper::saveTextureToFile(composedTexture, composed2D.string());
+	(void)wi::helper::saveTextureToFile(path.CreateScreenshotWithAlphaBackground(), alpha2D.string());
+}
 
 // Offscreen visual-verification path (DMO_UI_SHOT=<out.png>).
 //
@@ -42,7 +155,7 @@ static int RunOffscreenShot(const char* outPath)
 	//    does this in its device-init path (wiApplication.cpp, PLATFORM_APPLE); since we
 	//    bypass Application we must do it ourselves, else pipelines get null shaders
 	//    (no runtime dxcompiler on macOS) and CreatePipelineState segfaults.
-	wi::renderer::SetShaderPath(wi::renderer::GetShaderPath() + "metal/");
+	wi::renderer::SetShaderPath(ResolveDmoClientMacShaderPath());
 
 	// 1. Metal device — no window/swapchain needed (only CreateSwapChain wants one).
 	static std::unique_ptr<GraphicsDevice> device =
@@ -99,12 +212,129 @@ static int RunOffscreenShot(const char* outPath)
 		device->SubmitCommandLists();
 	}
 
+	CommandList compose = device->BeginCommandList();
+	path.Compose(compose);
+	device->SubmitCommandLists();
+
 	// 5. Read back the offscreen 2D result → PNG.
 	const bool ok = wi::helper::saveTextureToFile(path.GetRenderResult2D(), outPath);
 	std::fprintf(stderr, "[DmoClient] offscreen shot %s -> %s\n", ok ? "OK" : "FAIL", outPath);
 	wi::jobsystem::ShutDown();
 	return ok ? 0 : 1;
 }
+
+// Offscreen 3D ITEM-BAKE spike (DMO_ITEM_BAKE=<out.png>, DMO_ITEM_BAKE_MODEL=<path>).
+//
+// WICKED-UI-03D P0 de-risking: prove the RTT icon-bake path on THIS Metal build
+// before wiring cache→sink→projector. Loads a model into a standalone scene, frames
+// a camera on its bounds, renders it through a real wi::RenderPath3D into that path's
+// own offscreen 3D target, and writes the result to a PNG. Same headless device +
+// readback harness as RunOffscreenShot; the only new surface is the 3D scene + path.
+//
+// Ground truth = a PNG showing a rendered 3D object. If the 3D pipeline's Metal PSOs
+// are absent (as several eager 3D subsystems are on this build), the device's
+// null-shader guards no-op the draw and we get an empty frame rather than a crash —
+// which is itself the signal that the object shaders need provisioning.
+static int RunOffscreenItemBake(const char* outPath)
+{
+	using namespace wi::graphics;
+
+	const char* modelEnv = std::getenv("DMO_ITEM_BAKE_MODEL");
+	if (modelEnv == nullptr || modelEnv[0] == '\0')
+	{
+		std::fprintf(stderr, "[DmoClient] DMO_ITEM_BAKE requires DMO_ITEM_BAKE_MODEL=<path to .wiscene/.gltf>\n");
+		return 2;
+	}
+	const std::string modelPath = modelEnv;
+
+	// 0-2. Same headless device + subsystem bring-up as RunOffscreenShot.
+	wi::renderer::SetShaderPath(ResolveDmoClientMacShaderPath());
+	static std::unique_ptr<GraphicsDevice> device =
+		std::make_unique<GraphicsDevice_Metal>(ValidationMode::Disabled, GPUPreference::Discrete);
+	GetDevice() = device.get();
+	wi::renderer::Initialize();
+	wi::texturehelper::Initialize();
+	wi::image::Initialize();
+	wi::font::Initialize();
+
+	// Icon-bake scenes are static — never simulate physics. This also avoids the
+	// eager Jolt init that Scene::Update() would otherwise trigger (BodyManager::Init
+	// faults because we bypass wi::physics::Initialize() in this headless harness).
+	wi::physics::SetEnabled(false);
+
+	// 3. Standalone scene + the item model. attached=true so we could transform the
+	//    root later; here identity is fine.
+	wi::scene::Scene scene;
+	if (modelPath == "builtin:cube")
+	{
+		scene.Entity_CreateCube("builtin.cube");
+	}
+	else
+	{
+		wi::scene::LoadModel(scene, modelPath, XMMatrixIdentity(), true);
+	}
+	scene.Update(0.0f); // populate transforms + scene.bounds
+	if (scene.objects.GetCount() == 0)
+	{
+		std::fprintf(stderr, "[DmoClient] item-bake: model loaded 0 objects (%s)\n", modelPath.c_str());
+		return 1;
+	}
+
+	const XMFLOAT3 center = scene.bounds.getCenter();
+	const float radius = std::max(0.001f, scene.bounds.getRadius());
+
+	// Flat studio lighting (spec §3.1): a bright, even ambient via a WeatherComponent
+	// makes the icon legible with no dependence on sky/IBL/point-light falloff. A
+	// scene with no weather has zero ambient → the object renders black.
+	{
+		wi::scene::WeatherComponent& weather = scene.weathers.Create(wi::ecs::CreateEntity());
+		weather.ambient = XMFLOAT3(1.0f, 1.0f, 1.0f);
+	}
+	// A key point light adds a little form on top of the flat ambient. Point-light
+	// intensity is physical, so scale it up for the small studio distance.
+	scene.Entity_CreateLight("bake.key",
+		XMFLOAT3(center.x + radius * 2.0f, center.y + radius * 3.0f, center.z + radius * 2.0f),
+		XMFLOAT3(1.0f, 1.0f, 1.0f), /*intensity*/ radius * radius * 5000.0f + 5000.0f,
+		/*range*/ radius * 40.0f, wi::scene::LightComponent::POINT);
+	scene.Update(0.0f);
+
+	// 4. Frame a camera on the bounding sphere (3/4 view), spec §4.2 fit math.
+	const int bakeW = 256, bakeH = 256;
+	wi::scene::CameraComponent cam = BuildBakeCamera(center, radius, bakeW, bakeH);
+
+	// 5. Drive a real RenderPath3D over our scene + camera.
+	wi::RenderPath3D path;
+	path.scene = &scene;
+	path.camera = &cam;
+	path.setExposure(16.0f);
+	path.setBloomEnabled(false);
+	path.init(static_cast<float>(bakeW), static_cast<float>(bakeH), 96.0f);
+	path.Load();
+	for (int i = 0; i < 4; ++i)
+	{
+		path.PreUpdate();
+		path.Update(1.0f / 60.0f);
+		path.PostUpdate();
+		path.PreRender();
+		path.Render();
+		path.PostRender();
+		device->SubmitCommandLists();
+	}
+
+	const Texture composed = CaptureComposedBakeTexture(path, bakeW, bakeH);
+	SaveBakeDebugTargets(path, composed, outPath);
+
+	// 6. Read back the composed result → PNG. This matches the actual UI-facing
+	//    presentation path instead of the pre-compose HDR scene target.
+	const bool ok = wi::helper::saveTextureToFile(composed, outPath);
+	std::fprintf(stderr, "[DmoClient] item-bake %s -> %s (model=%s, %d objs, r=%.3f)\n",
+		ok ? "OK" : "FAIL", outPath, modelPath.c_str(),
+		static_cast<int>(scene.objects.GetCount()), radius);
+	wi::jobsystem::ShutDown();
+	return ok ? 0 : 1;
+}
+
+static std::string BuildInventoryPreviewImage(const WickedInventory::InventoryPreviewRequest& request);
 
 // Load + activate the DMO front-door path once the engine is initialized
 // (the engine never auto-calls RenderPath::Load — see Editor::Initialize).
@@ -114,6 +344,10 @@ public:
 	void Initialize() override
 	{
 		wi::Application::Initialize();
+		WickedInventory::SetInventoryPreviewImageResolver(
+			[](const WickedInventory::InventoryPreviewRequest& request) {
+				return BuildInventoryPreviewImage(request);
+			});
 		wi::RenderPath2D& path = DmoClient::FrontDoorPath();
 		path.Load();
 		ActivatePath(&path);
@@ -122,6 +356,92 @@ public:
 
 DmoApplication application;
 bool running = true;
+
+static std::string ResolveInventoryDemoAssetPath(const std::string& stableKey)
+{
+	if (stableKey == "asset.7001")
+		return "../Content/models/DamagedHelmet.glb";
+	if (stableKey == "asset.7002")
+		return "../Content/models/teapot.wiscene";
+	if (stableKey == "asset.7003")
+		return "../Content/models/cube.wiscene";
+	if (stableKey == "asset.7004")
+		return "../Content/models/CesiumMan.glb";
+	return {};
+}
+
+static std::string BuildInventoryPreviewImage(const WickedInventory::InventoryPreviewRequest& request)
+{
+	namespace fs = std::filesystem;
+
+	std::string modelPath = request.assetPath.empty() ? ResolveInventoryDemoAssetPath(request.stableKey)
+	                                                  : request.assetPath;
+	if (modelPath.empty())
+		return {};
+
+	const fs::path cacheRoot = fs::temp_directory_path() / "dmo-wicked-client" / "inventory-previews";
+	std::error_code ec;
+	fs::create_directories(cacheRoot, ec);
+	std::string sanitized = request.stableKey;
+	for (char& ch : sanitized)
+	{
+		const bool ok =
+			(ch >= 'a' && ch <= 'z') ||
+			(ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9') ||
+			ch == '.' || ch == '_' || ch == '-';
+		if (!ok)
+			ch = '_';
+	}
+	const fs::path outPath = cacheRoot / (sanitized + ".png");
+	if (fs::exists(outPath))
+		return outPath.string();
+
+	using namespace wi::graphics;
+
+	wi::scene::Scene scene;
+	wi::scene::LoadModel(scene, modelPath, XMMatrixIdentity(), true);
+	scene.Update(0.0f);
+	if (scene.objects.GetCount() == 0)
+		return {};
+
+	const XMFLOAT3 center = scene.bounds.getCenter();
+	const float radius = std::max(0.001f, scene.bounds.getRadius());
+	{
+		wi::scene::WeatherComponent& weather = scene.weathers.Create(wi::ecs::CreateEntity());
+		weather.ambient = XMFLOAT3(1.0f, 1.0f, 1.0f);
+	}
+	scene.Entity_CreateLight("inventory.bake.key",
+		XMFLOAT3(center.x + radius * 2.0f, center.y + radius * 3.0f, center.z + radius * 2.0f),
+		XMFLOAT3(1.0f, 1.0f, 1.0f), radius * radius * 5000.0f + 5000.0f,
+		radius * 40.0f, wi::scene::LightComponent::POINT);
+	scene.Update(0.0f);
+
+	const int bakeW = std::max(64, request.width);
+	const int bakeH = std::max(64, request.height);
+	wi::scene::CameraComponent cam = BuildBakeCamera(center, radius, bakeW, bakeH);
+
+	wi::RenderPath3D path;
+	path.scene = &scene;
+	path.camera = &cam;
+	path.setExposure(16.0f);
+	path.setBloomEnabled(false);
+	path.init(static_cast<float>(bakeW), static_cast<float>(bakeH), 96.0f);
+	path.Load();
+	for (int i = 0; i < 3; ++i)
+	{
+		path.PreUpdate();
+		path.Update(1.0f / 60.0f);
+		path.PostUpdate();
+		path.PreRender();
+		path.Render();
+		path.PostRender();
+		wi::graphics::GetDevice()->SubmitCommandLists();
+	}
+
+	const Texture composed = CaptureComposedBakeTexture(path, bakeW, bakeH);
+	return wi::helper::saveTextureToFile(composed, outPath.string()) ? outPath.string() : std::string{};
+}
 
 @interface DmoWindowDelegate : NSObject <NSWindowDelegate>
 @end
@@ -133,6 +453,14 @@ int main(int argc, char* argv[])
 	{
 		@autoreleasepool {
 			return RunOffscreenShot(shotPath);
+		}
+	}
+
+	// Headless 3D item-icon bake spike (WICKED-UI-03D P0 de-risk).
+	if (const char* bakePath = std::getenv("DMO_ITEM_BAKE"))
+	{
+		@autoreleasepool {
+			return RunOffscreenItemBake(bakePath);
 		}
 	}
 

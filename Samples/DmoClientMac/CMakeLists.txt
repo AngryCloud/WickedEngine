@@ -39,6 +39,16 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedChatWindowController.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedServicePointController.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedSettingsWindowController.cpp
+    ${DMO_CLIENT_ROOT}/Source/Gear/WickedGearTypes.cpp
+    ${DMO_CLIENT_ROOT}/Source/Gear/WickedGearEquipRules.cpp
+    ${DMO_CLIENT_ROOT}/Source/Inventory/WickedInventoryFootprintCatalog.cpp
+    ${DMO_CLIENT_ROOT}/Source/Inventory/WickedInventoryGridReadModel.cpp
+    ${DMO_CLIENT_ROOT}/Source/Inventory/WickedInventoryGridIntentClient.cpp
+    ${DMO_CLIENT_ROOT}/Source/Inventory/WickedInventoryIconBinding.cpp
+    ${DMO_CLIENT_ROOT}/Source/Inventory/WickedInventoryPanelRuntime.cpp
+    ${DMO_CLIENT_ROOT}/Source/Inventory/WickedInventoryRuntimeServices.cpp
+    ${DMO_CLIENT_ROOT}/Source/Inventory/WickedInventoryWorldDropIntentClient.cpp
+    ${DMO_CLIENT_ROOT}/Source/Inventory/WickedItemIconCache.cpp
     # Client read-model store — the seam a server-snapshot transport writes to.
     ${DMO_CLIENT_ROOT}/Source/UI/ReadModel/WickedClientReadModelStore.cpp
     # Demo snapshot feed — stands in for the live transport, drives the store off dt.
