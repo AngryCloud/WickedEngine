@@ -402,7 +402,8 @@ static std::string BuildInventoryPreviewImage(const WickedInventory::InventoryPr
 // wi::Application frame (the WE Editor's CameraPreview drives a preview RenderPath3D
 // the same way). Defined after BuildInventoryPreviewImage; used by DmoApplication::Render().
 static bool RenderItemPreviewToFile(const std::string& modelPath, const std::string& outPath,
-                                    int width, int height);
+                                    int width, int height,
+                                    const WickedInventory::ItemFramingParams& framing);
 
 extern bool running; // defined below; the run loop exits when this goes false
 
@@ -478,9 +479,10 @@ public:
 	// Queue an inventory item to be rendered to a PNG. Called (on the main thread, during
 	// Update) by the inventory preview-image resolver; drained in Render() so the actual
 	// GPU render happens inside the live engine frame.
-	void EnqueuePreview(std::string modelPath, std::string outPath, int width, int height)
+	void EnqueuePreview(std::string modelPath, std::string outPath, int width, int height,
+		const WickedInventory::ItemFramingParams& framing)
 	{
-		m_previewJobs.push_back(PreviewJob{ std::move(modelPath), std::move(outPath), width, height });
+		m_previewJobs.push_back(PreviewJob{ std::move(modelPath), std::move(outPath), width, height, framing });
 	}
 
 	void Render() override
@@ -495,7 +497,7 @@ public:
 		{
 			const PreviewJob job = m_previewJobs.front();
 			m_previewJobs.erase(m_previewJobs.begin());
-			const bool ok = RenderItemPreviewToFile(job.modelPath, job.outPath, job.width, job.height);
+			const bool ok = RenderItemPreviewToFile(job.modelPath, job.outPath, job.width, job.height, job.framing);
 			std::fprintf(stderr, "[DmoClient] inventory icon bake %s -> %s\n",
 				ok ? "OK" : "FAIL", job.outPath.c_str());
 		}
@@ -530,6 +532,7 @@ private:
 		std::string outPath;
 		int width = 128;
 		int height = 128;
+		WickedInventory::ItemFramingParams framing;
 	};
 	std::vector<PreviewJob> m_previewJobs;
 
@@ -556,6 +559,23 @@ static std::string ResolveInventoryDemoAssetPath(const std::string& stableKey)
 	if (stableKey == "asset.7004")
 		return "../Content/models/CesiumMan.glb";
 	return {};
+}
+
+// Process-global framing catalog (built once). The bake resolves per-item poses from it.
+static const WickedInventory::WickedItemFramingCatalog& InventoryFramingCatalog()
+{
+	static const WickedInventory::WickedItemFramingCatalog catalog =
+		WickedInventory::WickedItemFramingCatalog::BuildDefault();
+	return catalog;
+}
+
+// Demo item→framing-category map for the sample assets. Production derives category from the
+// server item-info read-model; here it just proves the catalog's per-category path end-to-end.
+static std::string DemoFramingCategory(const std::string& stableKey)
+{
+	if (stableKey == "asset.7001") return "armor";    // DamagedHelmet
+	if (stableKey == "asset.7004") return "creature"; // CesiumMan
+	return {};                                        // teapot / cube → three-quarter default
 }
 
 static std::string BuildInventoryPreviewImage(const WickedInventory::InventoryPreviewRequest& request)
@@ -591,11 +611,16 @@ static std::string BuildInventoryPreviewImage(const WickedInventory::InventoryPr
 	// hand-pump a RenderPath3D outside the frame loop.
 	const int bakeW = std::max(64, request.width);
 	const int bakeH = std::max(64, request.height);
+	// Resolve per-item camera framing from the catalog. Category is a demo mapping for the
+	// sample assets (the real client derives category from the server item-info read-model);
+	// unmapped items fall through to the three-quarter default.
+	const WickedInventory::ItemFramingParams framing =
+		InventoryFramingCatalog().Resolve(request.stableKey, DemoFramingCategory(request.stableKey));
 	// Dedup: the controller re-calls the resolver every frame while pending, so enqueue each
 	// item's render exactly once.
 	static std::unordered_set<std::string> s_enqueued;
 	if (s_enqueued.insert(outPath.string()).second)
-		application.EnqueuePreview(modelPath, outPath.string(), bakeW, bakeH);
+		application.EnqueuePreview(modelPath, outPath.string(), bakeW, bakeH, framing);
 	return {};
 }
 
@@ -604,7 +629,8 @@ static std::string BuildInventoryPreviewImage(const WickedInventory::InventoryPr
 // CameraPreview, which drives a preview RenderPath3D within the running frame and reads back
 // GetLastPostprocessRT. Hand-pumping this outside a frame does not render on this Metal fork.
 static bool RenderItemPreviewToFile(const std::string& modelPath, const std::string& outPath,
-                                    int width, int height)
+                                    int width, int height,
+                                    const WickedInventory::ItemFramingParams& framing)
 {
 	using namespace wi::graphics;
 
