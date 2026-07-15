@@ -298,15 +298,27 @@ static int RunOffscreenItemBake(const char* outPath)
 		/*range*/ radius * 40.0f, wi::scene::LightComponent::POINT);
 	scene.Update(0.0f);
 
-	// 4. Frame a camera on the bounding sphere (3/4 view), spec §4.2 fit math.
+	// 4. Frame the bake camera — but as a SCENE CAMERA ENTITY with render_to_texture set,
+	//    not the RenderPath3D main-view camera. This is the WickedEngine editor thumbnail
+	//    pattern: RenderPath3D::RenderCameraComponents() renders every scene camera whose
+	//    render_to_texture.resolution is non-zero into its OWN self-contained target
+	//    (prepass → tiled light cull → main → sky → mipchain), independent of the main-view
+	//    flow that doesn't stand up correctly in this headless harness.
 	const int bakeW = 256, bakeH = 256;
-	wi::scene::CameraComponent cam = BuildBakeCamera(center, radius, bakeW, bakeH);
+	const wi::ecs::Entity bakeCamEntity = scene.Entity_CreateCamera(
+		"bake.cam", static_cast<float>(bakeW), static_cast<float>(bakeH));
+	wi::scene::CameraComponent* bakeCam = scene.cameras.GetComponent(bakeCamEntity);
+	*bakeCam = BuildBakeCamera(center, radius, bakeW, bakeH);
+	bakeCam->render_to_texture.resolution = XMUINT2(bakeW, bakeH);
+	bakeCam->UpdateCamera();
 
-	// 5. Drive a real RenderPath3D over our scene + camera.
+	// 5. Drive a RenderPath3D; RenderCameraComponents (inside Render()) fills the bake
+	//    camera's render_to_texture target. The main-view camera is irrelevant here.
+	wi::scene::CameraComponent mainViewCam = BuildBakeCamera(center, radius, bakeW, bakeH);
 	wi::RenderPath3D path;
 	path.scene = &scene;
-	path.camera = &cam;
-	path.setExposure(16.0f);
+	path.camera = &mainViewCam;
+	path.setExposure(1.0f);
 	path.setBloomEnabled(false);
 	path.init(static_cast<float>(bakeW), static_cast<float>(bakeH), 96.0f);
 	path.Load();
@@ -321,15 +333,18 @@ static int RunOffscreenItemBake(const char* outPath)
 		device->SubmitCommandLists();
 	}
 
-	const Texture composed = CaptureComposedBakeTexture(path, bakeW, bakeH);
-	SaveBakeDebugTargets(path, composed, outPath);
-
-	// 6. Read back the composed result → PNG. This matches the actual UI-facing
-	//    presentation path instead of the pre-compose HDR scene target.
-	const bool ok = wi::helper::saveTextureToFile(composed, outPath);
-	std::fprintf(stderr, "[DmoClient] item-bake %s -> %s (model=%s, %d objs, r=%.3f)\n",
+	// 6. Read back the bake camera's self-contained render-to-texture result (the editor
+	//    thumbnail target) → PNG.
+	const Texture& shot = bakeCam->render_to_texture.rendertarget_display;
+	if (std::getenv("DMO_ITEM_BAKE_DEBUG") != nullptr)
+	{
+		const Texture composed = CaptureComposedBakeTexture(path, bakeW, bakeH);
+		SaveBakeDebugTargets(path, composed, outPath);
+	}
+	const bool ok = shot.IsValid() && wi::helper::saveTextureToFile(shot, outPath);
+	std::fprintf(stderr, "[DmoClient] item-bake %s -> %s (model=%s, %d objs, r=%.3f, rttValid=%d)\n",
 		ok ? "OK" : "FAIL", outPath, modelPath.c_str(),
-		static_cast<int>(scene.objects.GetCount()), radius);
+		static_cast<int>(scene.objects.GetCount()), radius, shot.IsValid() ? 1 : 0);
 	wi::jobsystem::ShutDown();
 	return ok ? 0 : 1;
 }

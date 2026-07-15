@@ -3938,7 +3938,15 @@ using namespace metal_internal;
 		// skipped). Issuing the draw would hit Metal's drawPrimitives with no pipeline set
 		// and crash inside the driver. Skip the draw — it simply renders nothing.
 		if (commandlist.active_pso == nullptr || !commandlist.active_pso->IsValid())
+		{
+			static bool s_warnedDrawSkip = false;
+			if (!s_warnedDrawSkip)
+			{
+				s_warnedDrawSkip = true;
+				std::fprintf(stderr, "[Metal] Draw skipped: no valid PSO bound (missing shader permutation)\n");
+			}
 			return;
+		}
 
 		if (commandlist.gs_desc.basePipelineDescriptor != nullptr)
 		{
@@ -4006,7 +4014,15 @@ using namespace metal_internal;
 	{
 		CommandList_Metal& commandlist = GetCommandList(cmd);
 		if (commandlist.active_pso == nullptr || !commandlist.active_pso->IsValid())
+		{
+			static bool s_warnedDrawIndexedSkip = false;
+			if (!s_warnedDrawIndexedSkip)
+			{
+				s_warnedDrawIndexedSkip = true;
+				std::fprintf(stderr, "[Metal] DrawIndexed(Instanced) skipped: no valid PSO bound (missing shader permutation)\n");
+			}
 			return; // no valid pipeline bound — skip draw (see Draw())
+		}
 const uint64_t index_stride = commandlist.index_type == MTL::IndexTypeUInt32 ? sizeof(uint32_t) : sizeof(uint16_t);
 		const uint64_t indexBufferOffset = startIndexLocation * index_stride;
 		
@@ -4148,7 +4164,15 @@ const uint64_t index_stride = commandlist.index_type == MTL::IndexTypeUInt32 ? s
 	{
 		CommandList_Metal& commandlist = GetCommandList(cmd);
 		if (commandlist.active_pso == nullptr || !commandlist.active_pso->IsValid())
+		{
+			static bool s_warnedDrawIndexedSkip = false;
+			if (!s_warnedDrawIndexedSkip)
+			{
+				s_warnedDrawIndexedSkip = true;
+				std::fprintf(stderr, "[Metal] DrawIndexed(Instanced) skipped: no valid PSO bound (missing shader permutation)\n");
+			}
 			return; // no valid pipeline bound — skip draw (see Draw())
+		}
 const uint64_t index_stride = commandlist.index_type == MTL::IndexTypeUInt32 ? sizeof(uint32_t) : sizeof(uint16_t);
 		const uint64_t indexBufferOffset = startIndexLocation * index_stride;
 		
