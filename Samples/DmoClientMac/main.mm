@@ -31,6 +31,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <unordered_set>
 
 static wi::scene::CameraComponent BuildBakeCamera(const XMFLOAT3& boundsCenter,
 	const float boundsRadius,
@@ -114,6 +115,51 @@ static wi::graphics::Texture CaptureComposedBakeTexture(const wi::RenderPath3D& 
 	device->RenderPassEnd(cmd);
 	device->SubmitCommandLists();
 	return composed;
+}
+
+// Sample an arbitrary HDR source texture (e.g. a scene camera's render_to_texture
+// target, filled by RenderPath3D::RenderCameraComponents) into an 8-bit sRGB target
+// via a full-screen image draw, then hand that back for CPU download. This is the
+// readback that actually contains the baked object: RenderCameraComponents renders
+// each render-to-texture scene camera into its OWN rendertarget_render, NOT into the
+// main-view GetRenderResult3D() that path.Compose() blits. Same "resolve the HDR
+// target to a displayable image" step the editor thumbnail does; also sidesteps the
+// Metal-fork bug where saveTextureToFile can't download a packed-HDR-float texture.
+static wi::graphics::Texture CaptureCameraTargetTexture(
+	const wi::graphics::Texture& src, int width, int height)
+{
+	using namespace wi::graphics;
+	GraphicsDevice* device = wi::graphics::GetDevice();
+	if (!src.IsValid())
+		return {};
+
+	Texture resolved;
+	TextureDesc desc;
+	desc.bind_flags = BindFlag::RENDER_TARGET | BindFlag::SHADER_RESOURCE;
+	desc.format = Format::R8G8B8A8_UNORM_SRGB;
+	desc.width = static_cast<uint32_t>(std::max(1, width));
+	desc.height = static_cast<uint32_t>(std::max(1, height));
+	device->CreateTexture(&desc, nullptr, &resolved);
+
+	CommandList cmd = device->BeginCommandList();
+	RenderPassImage rp[] = {
+		RenderPassImage::RenderTarget(&resolved, RenderPassImage::LoadOp::CLEAR)
+	};
+	device->RenderPassBegin(rp, 1, cmd);
+
+	Viewport vp;
+	vp.width = static_cast<float>(desc.width);
+	vp.height = static_cast<float>(desc.height);
+	device->BindViewports(1, &vp, cmd);
+
+	wi::image::Params params;
+	params.enableFullScreen();       // stretch src across the whole target
+	params.blendFlag = wi::enums::BLENDMODE_OPAQUE;
+	wi::image::Draw(&src, params, cmd);
+
+	device->RenderPassEnd(cmd);
+	device->SubmitCommandLists();
+	return resolved;
 }
 
 static void SaveBakeDebugTargets(wi::RenderPath3D& path,
@@ -252,10 +298,13 @@ static int RunOffscreenItemBake(const char* outPath)
 	static std::unique_ptr<GraphicsDevice> device =
 		std::make_unique<GraphicsDevice_Metal>(ValidationMode::Disabled, GPUPreference::Discrete);
 	GetDevice() = device.get();
-	wi::renderer::Initialize();
-	wi::texturehelper::Initialize();
-	wi::image::Initialize();
-	wi::font::Initialize();
+	// Full engine bring-up, exactly as wi::Application::Initialize() does. The windowed
+	// DMO_3D_PROBE proved the object-draw path renders through the real loop — and the
+	// only material difference from this headless harness was initialization: the minimal
+	// 4-subsystem init (renderer/texturehelper/image/font) leaves object rendering with
+	// missing dependencies, so DrawScene produced nothing. Immediate variant blocks until
+	// every system is up (no async wait needed for a one-shot bake).
+	wi::initializer::InitializeComponentsImmediate();
 
 	// Icon-bake scenes are static — never simulate physics. This also avoids the
 	// eager Jolt init that Scene::Update() would otherwise trigger (BodyManager::Init
@@ -298,32 +347,26 @@ static int RunOffscreenItemBake(const char* outPath)
 		/*range*/ radius * 40.0f, wi::scene::LightComponent::POINT);
 	scene.Update(0.0f);
 
-	// 4. Frame the bake camera — but as a SCENE CAMERA ENTITY with render_to_texture set,
-	//    not the RenderPath3D main-view camera. This is the WickedEngine editor thumbnail
-	//    pattern: RenderPath3D::RenderCameraComponents() renders every scene camera whose
-	//    render_to_texture.resolution is non-zero into its OWN self-contained target
-	//    (prepass → tiled light cull → main → sky → mipchain), independent of the main-view
-	//    flow that doesn't stand up correctly in this headless harness.
+	// 4-5. Drive a RenderPath3D with the bake camera as its MAIN-VIEW camera — the exact
+	//    configuration proven to render by the windowed DMO_3D_PROBE. (An earlier attempt
+	//    used a render_to_texture scene camera + RenderCameraComponents; that path never
+	//    produced pixels headless. The main-view path does, now that full engine init runs.)
 	const int bakeW = 256, bakeH = 256;
-	const wi::ecs::Entity bakeCamEntity = scene.Entity_CreateCamera(
-		"bake.cam", static_cast<float>(bakeW), static_cast<float>(bakeH));
-	wi::scene::CameraComponent* bakeCam = scene.cameras.GetComponent(bakeCamEntity);
-	*bakeCam = BuildBakeCamera(center, radius, bakeW, bakeH);
-	bakeCam->render_to_texture.resolution = XMUINT2(bakeW, bakeH);
-	bakeCam->UpdateCamera();
-
-	// 5. Drive a RenderPath3D; RenderCameraComponents (inside Render()) fills the bake
-	//    camera's render_to_texture target. The main-view camera is irrelevant here.
 	wi::scene::CameraComponent mainViewCam = BuildBakeCamera(center, radius, bakeW, bakeH);
 	wi::RenderPath3D path;
 	path.scene = &scene;
 	path.camera = &mainViewCam;
-	path.setExposure(1.0f);
+	const char* expEnv = std::getenv("DMO_BAKE_EXPOSURE");
+	path.setExposure(expEnv != nullptr ? static_cast<float>(std::atof(expEnv)) : 1.0f);
 	path.setBloomEnabled(false);
-	path.init(static_cast<float>(bakeW), static_cast<float>(bakeH), 96.0f);
+	path.setEyeAdaptionEnabled(false); // fixed exposure — no auto-adapt to a mostly-empty frame
+	// Match wi::Application::Run() ordering exactly (the proven windowed path): Load() once,
+	// then init() EVERY frame before PreUpdate. The one-shot init-before-Load ordering used
+	// earlier left the 3D render targets unallocated at first render → nothing drawn.
 	path.Load();
 	for (int i = 0; i < 4; ++i)
 	{
+		path.init(static_cast<float>(bakeW), static_cast<float>(bakeH), 96.0f);
 		path.PreUpdate();
 		path.Update(1.0f / 60.0f);
 		path.PostUpdate();
@@ -333,27 +376,30 @@ static int RunOffscreenItemBake(const char* outPath)
 		device->SubmitCommandLists();
 	}
 
-	// 6. Read back the bake camera's self-contained render-to-texture result (the editor
-	//    thumbnail target) → PNG.
-	// render↔display double-buffer swaps BEFORE the pass renders, so display holds the
-	// pre-render (cleared) buffer; the freshly-rendered content is in rendertarget_render.
-	const Texture& displayTgt = bakeCam->render_to_texture.rendertarget_display;
-	const Texture& renderTgt = bakeCam->render_to_texture.rendertarget_render;
-	const Texture& shot = renderTgt.IsValid() ? renderTgt : displayTgt;
+	// 6. Read back via a GPU RESOLVE to an 8-bit sRGB target, NOT the HDR scene target.
+	//    saveTextureToFile cannot download the R11G11B10_FLOAT scene target on this Metal
+	//    fork (yields all-zero), but GPU sampling of it is fine — so Compose the tonemapped
+	//    main-view 3D result (GetRenderResult3D) into an R8G8B8A8_UNORM_SRGB target and read
+	//    THAT. This matches the editor thumbnail's display-image resolve.
+	Texture composed = CaptureComposedBakeTexture(path, bakeW, bakeH);
 	if (std::getenv("DMO_ITEM_BAKE_DEBUG") != nullptr)
-	{
-		const Texture composed = CaptureComposedBakeTexture(path, bakeW, bakeH);
 		SaveBakeDebugTargets(path, composed, outPath);
-	}
-	const bool ok = shot.IsValid() && wi::helper::saveTextureToFile(shot, outPath);
-	std::fprintf(stderr, "[DmoClient] item-bake %s -> %s (model=%s, %d objs, r=%.3f, rttValid=%d)\n",
+	const bool ok = composed.IsValid() && wi::helper::saveTextureToFile(composed, outPath);
+	std::fprintf(stderr, "[DmoClient] item-bake %s -> %s (model=%s, %d objs, r=%.3f)\n",
 		ok ? "OK" : "FAIL", outPath, modelPath.c_str(),
-		static_cast<int>(scene.objects.GetCount()), radius, shot.IsValid() ? 1 : 0);
+		static_cast<int>(scene.objects.GetCount()), radius);
 	wi::jobsystem::ShutDown();
 	return ok ? 0 : 1;
 }
 
 static std::string BuildInventoryPreviewImage(const WickedInventory::InventoryPreviewRequest& request);
+// Render one item to a PNG THROUGH the engine — must be called inside a live
+// wi::Application frame (the WE Editor's CameraPreview drives a preview RenderPath3D
+// the same way). Defined after BuildInventoryPreviewImage; used by DmoApplication::Render().
+static bool RenderItemPreviewToFile(const std::string& modelPath, const std::string& outPath,
+                                    int width, int height);
+
+extern bool running; // defined below; the run loop exits when this goes false
 
 // Load + activate the DMO front-door path once the engine is initialized
 // (the engine never auto-calls RenderPath::Load — see Editor::Initialize).
@@ -367,10 +413,128 @@ public:
 			[](const WickedInventory::InventoryPreviewRequest& request) {
 				return BuildInventoryPreviewImage(request);
 			});
+
+		// DMO_3D_PROBE: windowed 3D-render sanity check. Instead of the 2D front door,
+		// stand up a RenderPath3D with a lit item (cube, or DMO_ITEM_BAKE_MODEL=<path>) and
+		// let the real wi::Application::Run() loop drive it. This is the ENGINE-FIRST way to
+		// render a 3D item preview, exactly as the WE Editor's CameraPreview does: give a
+		// RenderPath3D a scene + camera and let the real frame loop tick it — never hand-roll
+		// the frame drive. (The prior headless hand-pump produced only sky; the real loop
+		// renders the object because it completes the GPU-driven visibility→draw job graph
+		// that a hand-pump on this Metal fork does not.)
+		//   DMO_3D_PROBE            → just view it in the window (visual sanity).
+		//   DMO_ITEM_CAPTURE=<png>  → view it, then capture the rendered result to <png> and
+		//                             quit. This is the in-loop icon bake: the same render the
+		//                             production IIconBakeSink will run inside the live client.
+		const char* capturePng = std::getenv("DMO_ITEM_CAPTURE");
+		if (std::getenv("DMO_3D_PROBE") != nullptr || capturePng != nullptr)
+		{
+			const char* model = std::getenv("DMO_ITEM_BAKE_MODEL");
+			if (model != nullptr && model[0] != '\0' && std::string(model) != "builtin:cube")
+				wi::scene::LoadModel(m_itemScene, model, XMMatrixIdentity(), true);
+			else
+				m_itemScene.Entity_CreateCube("item.cube");
+			m_itemScene.Update(0.0f);
+
+			const XMFLOAT3 center = m_itemScene.bounds.getCenter();
+			const float radius = std::max(0.001f, m_itemScene.bounds.getRadius());
+			{
+				wi::scene::WeatherComponent& weather = m_itemScene.weathers.Create(wi::ecs::CreateEntity());
+				weather.ambient = XMFLOAT3(1.0f, 1.0f, 1.0f);
+			}
+			m_itemScene.Entity_CreateLight("item.key",
+				XMFLOAT3(center.x + radius * 2.0f, center.y + radius * 3.0f, center.z + radius * 2.0f),
+				XMFLOAT3(1.0f, 1.0f, 1.0f), radius * radius * 5000.0f + 5000.0f,
+				radius * 40.0f, wi::scene::LightComponent::POINT);
+			m_itemScene.Update(0.0f);
+
+			m_itemCam = BuildBakeCamera(center, radius, 1280, 800);
+			m_itemPath.scene = &m_itemScene;
+			m_itemPath.camera = &m_itemCam;
+			m_itemPath.setExposure(1.0f);
+			m_itemPath.Load();
+			ActivatePath(&m_itemPath);
+			if (capturePng != nullptr)
+			{
+				m_captureMode = true;
+				m_capturePath = capturePng;
+			}
+			std::fprintf(stderr, "[DmoClient] item preview active (%d objects, r=%.3f)%s\n",
+				static_cast<int>(m_itemScene.objects.GetCount()), radius,
+				m_captureMode ? " [capture]" : "");
+			return;
+		}
+
 		wi::RenderPath2D& path = DmoClient::FrontDoorPath();
 		path.Load();
 		ActivatePath(&path);
 	}
+
+	// Queue an inventory item to be rendered to a PNG. Called (on the main thread, during
+	// Update) by the inventory preview-image resolver; drained in Render() so the actual
+	// GPU render happens inside the live engine frame.
+	void EnqueuePreview(std::string modelPath, std::string outPath, int width, int height)
+	{
+		m_previewJobs.push_back(PreviewJob{ std::move(modelPath), std::move(outPath), width, height });
+	}
+
+	void Render() override
+	{
+		wi::Application::Render();
+
+		// Inventory icon bake: render at most one queued item preview per frame, THROUGH the
+		// engine, inside the live frame (this is the WE Editor's CameraPreview approach — a
+		// preview RenderPath3D driven within Application's frame). Bake-once: the result is a
+		// PNG the inventory grid slot then displays via its "image" attribute.
+		if (!m_previewJobs.empty())
+		{
+			const PreviewJob job = m_previewJobs.front();
+			m_previewJobs.erase(m_previewJobs.begin());
+			const bool ok = RenderItemPreviewToFile(job.modelPath, job.outPath, job.width, job.height);
+			std::fprintf(stderr, "[DmoClient] inventory icon bake %s -> %s\n",
+				ok ? "OK" : "FAIL", job.outPath.c_str());
+		}
+
+		// One-shot standalone capture (DMO_ITEM_CAPTURE): the active path IS the item path.
+		if (m_captureMode && !m_captured)
+		{
+			if (++m_captureFrames < 3) // let init(canvas)/targets settle
+				return;
+			const wi::graphics::Texture* rt = m_itemPath.GetLastPostprocessRT();
+			if (rt != nullptr && rt->IsValid())
+			{
+				wi::graphics::Texture out =
+					CaptureCameraTargetTexture(*rt, static_cast<int>(rt->desc.width), static_cast<int>(rt->desc.height));
+				const bool ok = out.IsValid() && wi::helper::saveTextureToFile(out, m_capturePath);
+				std::fprintf(stderr, "[DmoClient] in-loop item capture %s -> %s (%ux%u)\n",
+					ok ? "OK" : "FAIL", m_capturePath.c_str(), rt->desc.width, rt->desc.height);
+			}
+			else
+			{
+				std::fprintf(stderr, "[DmoClient] in-loop item capture FAIL: no valid render result\n");
+			}
+			m_captured = true;
+			running = false; // one-shot: exit the run loop
+		}
+	}
+
+private:
+	struct PreviewJob
+	{
+		std::string modelPath;
+		std::string outPath;
+		int width = 128;
+		int height = 128;
+	};
+	std::vector<PreviewJob> m_previewJobs;
+
+	wi::scene::Scene m_itemScene;
+	wi::scene::CameraComponent m_itemCam;
+	wi::RenderPath3D m_itemPath;
+	bool m_captureMode = false;
+	bool m_captured = false;
+	int m_captureFrames = 0;
+	std::string m_capturePath;
 };
 
 DmoApplication application;
@@ -414,15 +578,39 @@ static std::string BuildInventoryPreviewImage(const WickedInventory::InventoryPr
 	}
 	const fs::path outPath = cacheRoot / (sanitized + ".png");
 	if (fs::exists(outPath))
-		return outPath.string();
+		return outPath.string();   // already baked — hand the slot its icon
 
+	// Not baked yet: enqueue an in-frame render (drained by DmoApplication::Render, which is
+	// the only place the engine's frame is live) and report "pending" (empty). The inventory
+	// controller retries the resolver each frame until the PNG exists. Engine-first: we never
+	// hand-pump a RenderPath3D outside the frame loop.
+	const int bakeW = std::max(64, request.width);
+	const int bakeH = std::max(64, request.height);
+	// Dedup: the controller re-calls the resolver every frame while pending, so enqueue each
+	// item's render exactly once.
+	static std::unordered_set<std::string> s_enqueued;
+	if (s_enqueued.insert(outPath.string()).second)
+		application.EnqueuePreview(modelPath, outPath.string(), bakeW, bakeH);
+	return {};
+}
+
+// Render a single item to a PNG through the engine. MUST run inside a live wi::Application
+// frame (called only from DmoApplication::Render) — this mirrors the WE Editor's
+// CameraPreview, which drives a preview RenderPath3D within the running frame and reads back
+// GetLastPostprocessRT. Hand-pumping this outside a frame does not render on this Metal fork.
+static bool RenderItemPreviewToFile(const std::string& modelPath, const std::string& outPath,
+                                    int width, int height)
+{
 	using namespace wi::graphics;
 
 	wi::scene::Scene scene;
-	wi::scene::LoadModel(scene, modelPath, XMMatrixIdentity(), true);
+	if (modelPath == "builtin:cube")
+		scene.Entity_CreateCube("preview.cube");
+	else
+		wi::scene::LoadModel(scene, modelPath, XMMatrixIdentity(), true);
 	scene.Update(0.0f);
 	if (scene.objects.GetCount() == 0)
-		return {};
+		return false;
 
 	const XMFLOAT3 center = scene.bounds.getCenter();
 	const float radius = std::max(0.001f, scene.bounds.getRadius());
@@ -436,30 +624,31 @@ static std::string BuildInventoryPreviewImage(const WickedInventory::InventoryPr
 		radius * 40.0f, wi::scene::LightComponent::POINT);
 	scene.Update(0.0f);
 
-	const int bakeW = std::max(64, request.width);
-	const int bakeH = std::max(64, request.height);
-	wi::scene::CameraComponent cam = BuildBakeCamera(center, radius, bakeW, bakeH);
-
+	wi::scene::CameraComponent cam = BuildBakeCamera(center, radius, width, height);
 	wi::RenderPath3D path;
 	path.scene = &scene;
 	path.camera = &cam;
-	path.setExposure(16.0f);
+	path.setExposure(1.0f);
 	path.setBloomEnabled(false);
-	path.init(static_cast<float>(bakeW), static_cast<float>(bakeH), 96.0f);
+	path.setEyeAdaptionEnabled(false);
 	path.Load();
-	for (int i = 0; i < 3; ++i)
+	for (int i = 0; i < 3; ++i) // Load() once, init() every frame — matches Application::Run()
 	{
+		path.init(static_cast<float>(width), static_cast<float>(height), 96.0f);
 		path.PreUpdate();
 		path.Update(1.0f / 60.0f);
 		path.PostUpdate();
 		path.PreRender();
 		path.Render();
 		path.PostRender();
-		wi::graphics::GetDevice()->SubmitCommandLists();
+		GetDevice()->SubmitCommandLists();
 	}
 
-	const Texture composed = CaptureComposedBakeTexture(path, bakeW, bakeH);
-	return wi::helper::saveTextureToFile(composed, outPath.string()) ? outPath.string() : std::string{};
+	const Texture* rt = path.GetLastPostprocessRT();
+	if (rt == nullptr || !rt->IsValid())
+		return false;
+	const Texture out = CaptureCameraTargetTexture(*rt, width, height);
+	return out.IsValid() && wi::helper::saveTextureToFile(out, outPath);
 }
 
 @interface DmoWindowDelegate : NSObject <NSWindowDelegate>
