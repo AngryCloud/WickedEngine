@@ -44,8 +44,9 @@ static wi::scene::CameraComponent BuildBakeCamera(const XMFLOAT3& boundsCenter,
 	const int height,
 	const WickedInventory::ItemFramingParams& framing = {})
 {
+	const float aspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
 	const WickedInventory::ItemFramingSolution sol =
-		WickedInventory::WickedItemFramingCatalog::Solve(framing, boundsRadius);
+		WickedInventory::WickedItemFramingCatalog::Solve(framing, boundsRadius, aspect);
 
 	const XMFLOAT3 cameraPosition = XMFLOAT3(
 		boundsCenter.x + sol.eyeOffsetX,
