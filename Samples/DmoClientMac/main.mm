@@ -17,6 +17,7 @@
 #include "WickedEngine.h"
 #include "DmoClientRenderPath.h"
 #include "Inventory/WickedInventoryRuntimeServices.h"
+#include "Inventory/WickedItemFramingCatalog.h"
 #include "wiGraphicsDevice_Metal.h"
 #include "wiRenderPath3D.h"
 #include "wiScene.h"
@@ -33,39 +34,42 @@
 #include <string>
 #include <unordered_set>
 
+// Build the item-preview camera from a resolved framing (WICKED-UI-03D §8 Phase A framing
+// catalog). Framing (fov/orbit/distance-margin/floor-drop) comes from the portable
+// WickedItemFramingCatalog; here we only turn the engine-neutral solution into a
+// CameraComponent. Default-constructed params = the catalog's three-quarter default.
 static wi::scene::CameraComponent BuildBakeCamera(const XMFLOAT3& boundsCenter,
 	const float boundsRadius,
 	const int width,
-	const int height)
+	const int height,
+	const WickedInventory::ItemFramingParams& framing = {})
 {
-	const float cameraDistance = boundsRadius * 2.0f;
-	const float horizontalAngle = wi::math::DegreesToRadians(-50.0f);
-	const float elevationAngle = wi::math::DegreesToRadians(20.0f);
-	const float horizontalDistance = cameraDistance * std::cos(elevationAngle);
-	const float verticalOffset = cameraDistance * std::sin(elevationAngle);
+	const WickedInventory::ItemFramingSolution sol =
+		WickedInventory::WickedItemFramingCatalog::Solve(framing, boundsRadius);
 
 	const XMFLOAT3 cameraPosition = XMFLOAT3(
-		boundsCenter.x + horizontalDistance * std::cos(horizontalAngle),
-		boundsCenter.y + verticalOffset,
-		boundsCenter.z + horizontalDistance * std::sin(horizontalAngle));
+		boundsCenter.x + sol.eyeOffsetX,
+		boundsCenter.y + sol.eyeOffsetY,
+		boundsCenter.z + sol.eyeOffsetZ);
+	const XMFLOAT3 lookAt = XMFLOAT3(
+		boundsCenter.x,
+		boundsCenter.y + sol.atOffsetY,
+		boundsCenter.z);
 
 	wi::scene::TransformComponent cameraTransform;
-	cameraTransform.Translate(XMLoadFloat3(&cameraPosition));
-	cameraTransform.UpdateTransform();
-
 	const XMVECTOR eye = XMLoadFloat3(&cameraPosition);
-	const XMVECTOR at = XMLoadFloat3(&boundsCenter);
+	const XMVECTOR at = XMLoadFloat3(&lookAt);
 	const XMVECTOR up = XMVectorSet(0, 1, 0, 0);
 	const XMMATRIX view = XMMatrixLookAtLH(eye, at, up);
 	const XMMATRIX viewInv = XMMatrixInverse(nullptr, view);
 	XMStoreFloat4x4(&cameraTransform.world, viewInv);
 
 	wi::scene::CameraComponent camera;
-	camera.fov = wi::math::DegreesToRadians(60.0f);
+	camera.fov = sol.fovRadians;
 	camera.width = static_cast<float>(width);
 	camera.height = static_cast<float>(height);
 	camera.zNearP = 0.05f;
-	camera.zFarP = cameraDistance + boundsRadius * 4.0f;
+	camera.zFarP = sol.distance + boundsRadius * 4.0f;
 	camera.TransformCamera(cameraTransform);
 	camera.UpdateCamera();
 	return camera;
