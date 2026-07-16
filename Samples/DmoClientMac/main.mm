@@ -730,24 +730,38 @@ static std::string BuildInventoryPreviewImage(const WickedInventory::InventoryPr
 	const int bakeW = std::max(64, request.width);
 	const int bakeH = std::max(64, request.height);
 	const WickedInventory::IconCacheKey key = MakeIconKey(request.stableKey, bakeW, bakeH);
+
+	// Dedup set: the controller re-calls the resolver every frame while pending, so each item's
+	// render is enqueued exactly once. Also cleared below when a cached icon is found stale, so
+	// the re-bake can re-enqueue.
+	static std::unordered_set<std::string> s_enqueued;
+
 	if (fs::exists(outPath))
 	{
-		(void)IconSidecar().Find(key); // serve-hit: bump L2 recency so a live icon survives eviction
-		return outPath.string(); // already baked — hand the slot its icon
+		const WickedInventory::IconSidecarEntry* entry = IconSidecar().Find(key); // bumps recency
+		// Staleness (§4.2): if the sidecar tracks this icon, the on-disk bytes must still hash to
+		// the recorded contentHash. A mismatch — truncation, corruption, an external edit, or a
+		// re-baked asset — means the PNG diverged from what we baked, so drop it and re-bake.
+		// Untracked orphans (no sidecar entry) have no baseline to check, so serve them as-is.
+		if (entry == nullptr || HashFileBytes(outPath) == entry->contentHash)
+			return outPath.string(); // fresh (or untracked) — hand the slot its icon
+
+		std::error_code rmEc;
+		fs::remove(outPath, rmEc);          // clear the stale bytes so the exists-guard re-bakes
+		s_enqueued.erase(outPath.string()); // allow the re-bake to re-enqueue
+		std::fprintf(stderr, "[DmoClient] icon-cache STALE %s — re-baking\n", outPath.c_str());
+		// fall through to enqueue
 	}
 
-	// Not baked yet: enqueue an in-frame render (drained by DmoApplication::Render, which is
-	// the only place the engine's frame is live) and report "pending" (empty). The inventory
-	// controller retries the resolver each frame until the PNG exists. Engine-first: we never
-	// hand-pump a RenderPath3D outside the frame loop.
+	// Not baked yet (or just invalidated as stale): enqueue an in-frame render (drained by
+	// DmoApplication::Render, which is the only place the engine's frame is live) and report
+	// "pending" (empty). The inventory controller retries the resolver each frame until the PNG
+	// exists. Engine-first: we never hand-pump a RenderPath3D outside the frame loop.
 	// Resolve per-item camera framing from the catalog. Category is a demo mapping for the
 	// sample assets (the real client derives category from the server item-info read-model);
 	// unmapped items fall through to the three-quarter default.
 	const WickedInventory::ItemFramingParams framing =
 		InventoryFramingCatalog().Resolve(request.stableKey, DemoFramingCategory(request.stableKey));
-	// Dedup: the controller re-calls the resolver every frame while pending, so enqueue each
-	// item's render exactly once.
-	static std::unordered_set<std::string> s_enqueued;
 	if (s_enqueued.insert(outPath.string()).second)
 		application.EnqueuePreview(request.stableKey, modelPath, outPath.string(), bakeW, bakeH, framing);
 	return {};
