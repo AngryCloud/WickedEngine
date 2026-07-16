@@ -243,6 +243,7 @@ public:
         const bool mousePressed = wi::input::Press(wi::input::MOUSE_BUTTON_LEFT);
         const bool mouseReleased = wi::input::Release(wi::input::MOUSE_BUTTON_LEFT);
         const bool mouseHeld = wi::input::Down(wi::input::MOUSE_BUTTON_LEFT);
+        const bool secondaryPressed = wi::input::Press(wi::input::MOUSE_BUTTON_RIGHT);
         const XMFLOAT4 pointer = wi::input::GetPointer();
         const bool pointerMoved =
             !m_hasLastPointer ||
@@ -294,6 +295,8 @@ public:
             WickedUI::DispatchFrontDoorMouseMove(pointer.x, pointer.y);
         if (mousePressed)
             WickedUI::DispatchFrontDoorMouseDown(pointer.x, pointer.y);
+        if (secondaryPressed)
+            WickedUI::DispatchFrontDoorSecondaryClick(pointer.x, pointer.y);
         if (mouseReleased)
             WickedUI::DispatchFrontDoorMouseUp(pointer.x, pointer.y);
 
