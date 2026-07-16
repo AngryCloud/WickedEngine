@@ -18,6 +18,7 @@
 #include "DmoClientRenderPath.h"
 #include "Inventory/WickedInventoryRuntimeServices.h"
 #include "Inventory/WickedItemFramingCatalog.h"
+#include "Inventory/WickedIconCacheSidecar.h"
 #include "wiGraphicsDevice_Metal.h"
 #include "wiRenderPath3D.h"
 #include "wiScene.h"
@@ -29,7 +30,10 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
+#include <cstdint>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -405,6 +409,10 @@ static bool RenderItemPreviewToFile(const std::string& modelPath, const std::str
                                     int width, int height,
                                     const WickedInventory::ItemFramingParams& framing);
 
+// L2 icon-cache sidecar helpers (defined below; used inside DmoApplication::Render on bake done).
+static WickedInventory::IconCacheKey MakeIconKey(const std::string& stableKey, int w, int h);
+static void RecordBakedIcon(const WickedInventory::IconCacheKey& key, const std::string& pngPath);
+
 extern bool running; // defined below; the run loop exits when this goes false
 
 // Load + activate the DMO front-door path once the engine is initialized
@@ -479,10 +487,11 @@ public:
 	// Queue an inventory item to be rendered to a PNG. Called (on the main thread, during
 	// Update) by the inventory preview-image resolver; drained in Render() so the actual
 	// GPU render happens inside the live engine frame.
-	void EnqueuePreview(std::string modelPath, std::string outPath, int width, int height,
-		const WickedInventory::ItemFramingParams& framing)
+	void EnqueuePreview(std::string stableKey, std::string modelPath, std::string outPath,
+		int width, int height, const WickedInventory::ItemFramingParams& framing)
 	{
-		m_previewJobs.push_back(PreviewJob{ std::move(modelPath), std::move(outPath), width, height, framing });
+		m_previewJobs.push_back(PreviewJob{ std::move(stableKey), std::move(modelPath),
+			std::move(outPath), width, height, framing });
 	}
 
 	void Render() override
@@ -500,6 +509,10 @@ public:
 			const bool ok = RenderItemPreviewToFile(job.modelPath, job.outPath, job.width, job.height, job.framing);
 			std::fprintf(stderr, "[DmoClient] inventory icon bake %s -> %s\n",
 				ok ? "OK" : "FAIL", job.outPath.c_str());
+			// Record the baked icon in the L2 sidecar (bounds the on-disk set; persisted at
+			// shutdown for zero-rebake on reopen). Eviction returns files the app must delete.
+			if (ok)
+				RecordBakedIcon(MakeIconKey(job.stableKey, job.width, job.height), job.outPath);
 		}
 
 		// One-shot standalone capture (DMO_ITEM_CAPTURE): the active path IS the item path.
@@ -528,6 +541,7 @@ public:
 private:
 	struct PreviewJob
 	{
+		std::string stableKey;
 		std::string modelPath;
 		std::string outPath;
 		int width = 128;
@@ -569,6 +583,117 @@ static const WickedInventory::WickedItemFramingCatalog& InventoryFramingCatalog(
 	return catalog;
 }
 
+// ── L2 persistable icon-cache sidecar (WICKED-UI-03D §4.1/§4.2) ────────────────────────────
+// The on-disk baked PNGs are the L2 cache; this sidecar is their persistable manifest. It
+// bounds the on-disk set (byte+count LRU) and — persisted across runs — lets a reopened bank
+// serve icons with zero re-bake. The sidecar owns no I/O; the app deletes evicted files and
+// reads/writes the manifest. Process-global, mutated by the resolver + the bake drain.
+static WickedInventory::WickedIconCacheSidecar& IconSidecar()
+{
+	static WickedInventory::WickedIconCacheSidecar sidecar;
+	return sidecar;
+}
+
+static std::filesystem::path IconPreviewCacheRoot()
+{
+	return std::filesystem::temp_directory_path() / "dmo-wicked-client" / "inventory-previews";
+}
+
+static std::filesystem::path IconSidecarManifestPath()
+{
+	return IconPreviewCacheRoot() / "icon-cache.manifest.v1";
+}
+
+// The sidecar key is (appearanceId, footprint, bgTheme). Built identically at Put (bake done)
+// and Find (icon served) so recency tracking matches. bgTheme=0 (the demo has no themed bg).
+static WickedInventory::IconCacheKey MakeIconKey(const std::string& stableKey, int w, int h)
+{
+	WickedInventory::IconCacheKey key;
+	key.appearanceId = stableKey;
+	key.footprintW = static_cast<std::uint16_t>(w);
+	key.footprintH = static_cast<std::uint16_t>(h);
+	key.bgTheme = 0;
+	return key;
+}
+
+// Cheap FNV-1a over the baked PNG bytes → the sidecar's contentHash (staleness/integrity tag,
+// consumed by the reload-verify slice). Icons are a few KB, so reading them is negligible.
+static std::uint64_t HashFileBytes(const std::filesystem::path& path)
+{
+	std::ifstream f(path, std::ios::binary);
+	if (!f)
+		return 0;
+	std::uint64_t h = 1469598103934665603ull;
+	char buf[4096];
+	while (f.read(buf, sizeof(buf)) || f.gcount())
+	{
+		const std::streamsize n = f.gcount();
+		for (std::streamsize i = 0; i < n; ++i)
+		{
+			h ^= static_cast<unsigned char>(buf[i]);
+			h *= 1099511628211ull;
+		}
+	}
+	return h;
+}
+
+static void DeleteEvictedIconFiles(const std::vector<WickedInventory::IconSidecarEntry>& evicted)
+{
+	std::error_code ec;
+	for (const WickedInventory::IconSidecarEntry& e : evicted)
+	{
+		if (std::filesystem::remove(e.path, ec))
+			std::fprintf(stderr, "[DmoClient] icon-cache evicted %s (%zu bytes)\n",
+				e.path.c_str(), e.byteSize);
+	}
+}
+
+// Boot: hydrate the manifest, then bring the on-disk set back within budget (deleting the
+// overflow). Missing-file rows self-heal — the resolver's fs::exists guard re-bakes and
+// re-Puts, overwriting the stale row.
+static void LoadIconSidecar()
+{
+	namespace fs = std::filesystem;
+	std::ifstream in(IconSidecarManifestPath(), std::ios::binary);
+	if (!in)
+		return; // first run — nothing persisted yet
+	const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+	const std::size_t loaded = IconSidecar().Deserialize(text);
+	DeleteEvictedIconFiles(IconSidecar().EnforceBudget());
+	std::fprintf(stderr, "[DmoClient] icon-cache sidecar loaded (%zu entries, %zu bytes)\n",
+		loaded, IconSidecar().TotalBytes());
+}
+
+// Shutdown: persist the manifest (temp + rename so a crash mid-write can't corrupt it).
+static void SaveIconSidecar()
+{
+	namespace fs = std::filesystem;
+	std::error_code ec;
+	fs::create_directories(IconPreviewCacheRoot(), ec);
+	const fs::path finalPath = IconSidecarManifestPath();
+	const fs::path tmpPath = finalPath.string() + ".tmp";
+	{
+		std::ofstream out(tmpPath, std::ios::binary | std::ios::trunc);
+		if (!out)
+			return;
+		out << IconSidecar().Serialize();
+	}
+	fs::rename(tmpPath, finalPath, ec);
+	if (ec)
+		fs::remove(tmpPath, ec);
+}
+
+// Record a freshly-baked icon in the sidecar and delete anything eviction pushed out.
+static void RecordBakedIcon(const WickedInventory::IconCacheKey& key, const std::string& pngPath)
+{
+	std::error_code ec;
+	const std::uintmax_t size = std::filesystem::file_size(pngPath, ec);
+	if (ec)
+		return; // file vanished / unreadable — don't record a bogus row
+	DeleteEvictedIconFiles(
+		IconSidecar().Put(key, pngPath, HashFileBytes(pngPath), static_cast<std::size_t>(size)));
+}
+
 // Demo item→framing-category map for the sample assets. Production derives category from the
 // server item-info read-model; here it just proves the catalog's per-category path end-to-end.
 static std::string DemoFramingCategory(const std::string& stableKey)
@@ -587,7 +712,7 @@ static std::string BuildInventoryPreviewImage(const WickedInventory::InventoryPr
 	if (modelPath.empty())
 		return {};
 
-	const fs::path cacheRoot = fs::temp_directory_path() / "dmo-wicked-client" / "inventory-previews";
+	const fs::path cacheRoot = IconPreviewCacheRoot();
 	std::error_code ec;
 	fs::create_directories(cacheRoot, ec);
 	std::string sanitized = request.stableKey;
@@ -602,15 +727,19 @@ static std::string BuildInventoryPreviewImage(const WickedInventory::InventoryPr
 			ch = '_';
 	}
 	const fs::path outPath = cacheRoot / (sanitized + ".png");
+	const int bakeW = std::max(64, request.width);
+	const int bakeH = std::max(64, request.height);
+	const WickedInventory::IconCacheKey key = MakeIconKey(request.stableKey, bakeW, bakeH);
 	if (fs::exists(outPath))
-		return outPath.string();   // already baked — hand the slot its icon
+	{
+		(void)IconSidecar().Find(key); // serve-hit: bump L2 recency so a live icon survives eviction
+		return outPath.string(); // already baked — hand the slot its icon
+	}
 
 	// Not baked yet: enqueue an in-frame render (drained by DmoApplication::Render, which is
 	// the only place the engine's frame is live) and report "pending" (empty). The inventory
 	// controller retries the resolver each frame until the PNG exists. Engine-first: we never
 	// hand-pump a RenderPath3D outside the frame loop.
-	const int bakeW = std::max(64, request.width);
-	const int bakeH = std::max(64, request.height);
 	// Resolve per-item camera framing from the catalog. Category is a demo mapping for the
 	// sample assets (the real client derives category from the server item-info read-model);
 	// unmapped items fall through to the three-quarter default.
@@ -620,7 +749,7 @@ static std::string BuildInventoryPreviewImage(const WickedInventory::InventoryPr
 	// item's render exactly once.
 	static std::unordered_set<std::string> s_enqueued;
 	if (s_enqueued.insert(outPath.string()).second)
-		application.EnqueuePreview(modelPath, outPath.string(), bakeW, bakeH, framing);
+		application.EnqueuePreview(request.stableKey, modelPath, outPath.string(), bakeW, bakeH, framing);
 	return {};
 }
 
@@ -728,6 +857,10 @@ int main(int argc, char* argv[])
 		// The DMO front-door path is loaded + activated in DmoApplication::Initialize
 		// (called by the engine once the device is ready on the first Run frame).
 
+		// Hydrate the L2 icon-cache sidecar before any bake runs, so previously-baked icons
+		// resolve with zero re-bake and the on-disk set starts within budget.
+		LoadIconSidecar();
+
 		// Info overlay so the window visibly proves the render loop is live.
 		application.infoDisplay.active = true;
 		application.infoDisplay.watermark = true;
@@ -775,6 +908,8 @@ int main(int argc, char* argv[])
 			}
 		}
 
+		// Persist the L2 icon-cache manifest so the next launch resolves icons with zero re-bake.
+		SaveIconSidecar();
 		wi::jobsystem::ShutDown();
 	}
 
