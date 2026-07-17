@@ -16,6 +16,8 @@
 
 #include "WickedEngine.h"
 #include "DmoClientRenderPath.h"
+#include "Application/WickedUiPrototypeHarness.h"
+#include "UI/Screens/WickedFrontDoorScreens.h"
 #include "Inventory/WickedInventoryRuntimeServices.h"
 #include "Inventory/WickedItemFramingCatalog.h"
 #include "Inventory/WickedIconCacheSidecar.h"
@@ -35,6 +37,7 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_set>
 
@@ -79,6 +82,74 @@ static wi::scene::CameraComponent BuildBakeCamera(const XMFLOAT3& boundsCenter,
 	camera.UpdateCamera();
 	return camera;
 }
+
+namespace {
+
+std::unique_ptr<dmo::wicked::WickedUiPrototypeHarness> g_uiPrototypeHarness;
+std::optional<std::uint32_t> g_uiPrototypeBootScreen;
+
+void EnsurePrototypeHarnessInitialized()
+{
+	if (!g_uiPrototypeHarness)
+		g_uiPrototypeHarness = std::make_unique<dmo::wicked::WickedUiPrototypeHarness>();
+	if (!g_uiPrototypeHarness->IsInitialized())
+		(void)g_uiPrototypeHarness->Initialize(g_uiPrototypeBootScreen, dmo::wicked::WickedUiHostMode::StandalonePrototype);
+}
+
+void TickPrototypeHarness(const double deltaSeconds)
+{
+	if (g_uiPrototypeHarness && g_uiPrototypeHarness->IsInitialized())
+		(void)g_uiPrototypeHarness->Tick(deltaSeconds);
+}
+
+void ShutdownPrototypeHarness()
+{
+	if (g_uiPrototypeHarness)
+	{
+		(void)g_uiPrototypeHarness->Shutdown();
+		g_uiPrototypeHarness.reset();
+	}
+}
+
+std::optional<std::uint32_t> ParsePrototypeScreenName(const char* value)
+{
+	if (value == nullptr || value[0] == '\0')
+		return std::nullopt;
+	const std::string text(value);
+	if (text == "auth") return WickedUI::kAuthScreenId;
+	if (text == "select") return WickedUI::kCharacterSelectScreenId;
+	if (text == "create") return WickedUI::kCharacterCreateScreenId;
+	if (text == "loading") return WickedUI::kLoadingScreenId;
+	if (text == "world") return WickedUI::kWorldBackdropScreenId;
+	if (text == "inventory") return WickedUI::kInventoryWindowScreenId;
+	if (text == "journal") return WickedUI::kJournalWindowScreenId;
+	if (text == "character") return WickedUI::kCharacterSheetScreenId;
+	if (text == "chat") return WickedUI::kChatWindowScreenId;
+	if (text == "service") return WickedUI::kServicePointScreenId;
+	if (text == "settings") return WickedUI::kSettingsWindowScreenId;
+	if (text == "menu") return WickedUI::kMenuWindowScreenId;
+	return std::nullopt;
+}
+
+void ConfigurePrototypeBootScreenFromEnvironment()
+{
+	if (const char* named = std::getenv("DMO_UI_PROTOTYPE_SCREEN"))
+	{
+		if (const auto parsed = ParsePrototypeScreenName(named); parsed.has_value())
+			g_uiPrototypeBootScreen = parsed;
+	}
+	if (!g_uiPrototypeBootScreen.has_value())
+	{
+		if (const char* numeric = std::getenv("DMO_UI_SHOT_SCREEN"))
+		{
+			const long id = std::strtol(numeric, nullptr, 10);
+			if (id > 0)
+				g_uiPrototypeBootScreen = static_cast<std::uint32_t>(id);
+		}
+	}
+}
+
+} // namespace
 
 static std::string ResolveDmoClientMacShaderPath()
 {
@@ -231,18 +302,13 @@ static int RunOffscreenShot(const char* outPath)
 	wi::font::Initialize();
 	wi::input::Initialize();
 
-	// 3. Optional boot-screen selector (DMO_UI_SHOT_SCREEN=<k*ScreenId>): capture a
-	//    specific front-door/window screen instead of the default (auth). Must be set
-	//    before Load() triggers the one-time host mount.
-	if (const char* screenEnv = std::getenv("DMO_UI_SHOT_SCREEN"))
-	{
-		const long id = std::strtol(screenEnv, nullptr, 10);
-		if (id > 0)
-		{
-			DmoClient::SetBootScreen(static_cast<std::uint32_t>(id));
-			std::fprintf(stderr, "[DmoClient] offscreen boot screen = %ld\n", id);
-		}
-	}
+	// 3. Optional boot-screen selector. Prototype mode now flows through the shared
+	//    WickedUiRuntimeService harness, which seeds demo/bootstrap state before the
+	//    front-door host mounts.
+	ConfigurePrototypeBootScreenFromEnvironment();
+	EnsurePrototypeHarnessInitialized();
+	if (g_uiPrototypeBootScreen.has_value())
+		std::fprintf(stderr, "[DmoClient] offscreen boot screen = %u\n", *g_uiPrototypeBootScreen);
 
 	// 4. Size the path canvas (the GUI + rtFinal derive their extent from it) and project.
 	wi::RenderPath2D& path = DmoClient::FrontDoorPath();
@@ -257,6 +323,7 @@ static int RunOffscreenShot(const char* outPath)
 	//    frames also lets deferred reprojection + in-place value updates settle.
 	for (int i = 0; i < 8; ++i)
 	{
+		TickPrototypeHarness(1.0 / 60.0);
 		wi::font::UpdateAtlas(path.GetDPIScaling());
 		path.PreUpdate();
 		path.Update(1.0f / 60.0f);
@@ -274,6 +341,7 @@ static int RunOffscreenShot(const char* outPath)
 	// 5. Read back the offscreen 2D result → PNG.
 	const bool ok = wi::helper::saveTextureToFile(path.GetRenderResult2D(), outPath);
 	std::fprintf(stderr, "[DmoClient] offscreen shot %s -> %s\n", ok ? "OK" : "FAIL", outPath);
+	ShutdownPrototypeHarness();
 	wi::jobsystem::ShutDown();
 	return ok ? 0 : 1;
 }
@@ -479,6 +547,8 @@ public:
 			return;
 		}
 
+		ConfigurePrototypeBootScreenFromEnvironment();
+		EnsurePrototypeHarnessInitialized();
 		wi::RenderPath2D& path = DmoClient::FrontDoorPath();
 		path.Load();
 		ActivatePath(&path);
@@ -919,11 +989,13 @@ int main(int argc, char* argv[])
 				}
 
 				application.Run();
+				TickPrototypeHarness(1.0 / 60.0);
 			}
 		}
 
 		// Persist the L2 icon-cache manifest so the next launch resolves icons with zero re-bake.
 		SaveIconSidecar();
+		ShutdownPrototypeHarness();
 		wi::jobsystem::ShutDown();
 	}
 

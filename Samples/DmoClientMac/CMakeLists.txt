@@ -21,6 +21,7 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/UI/Substrate/WickedUIScreenRegistry.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Substrate/WickedUIScreenHost.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Controllers/WickedUIScreenController.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Controllers/WickedFrontDoorControllers.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Theme/WickedUIThemePack.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Theme/WickedUIThemeSystem.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Projection/WickedGuiProjector.cpp
@@ -62,7 +63,22 @@ add_library(dmo_wicked_ui_min STATIC
     # Integrated pre-existing portable Journal presenter layer (Source/Presenters).
     ${DMO_CLIENT_ROOT}/Source/Presenters/WickedJournalBookShell.cpp
     ${DMO_CLIENT_ROOT}/Source/Presenters/WickedJournalTabPresenter.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Substrate/WickedUISubstrate.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/WickedFrontDoorAuthScreen.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/WickedFrontDoorAvatarSelectionScreen.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/WickedFrontDoorEnterWorldScreen.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Projection/WickedFrontDoorHost.cpp
+    ${DMO_CLIENT_ROOT}/Source/Foundation/WickedEventKernel.cpp
+    ${DMO_CLIENT_ROOT}/Source/Application/WickedClientServiceDirectory.cpp
+    ${DMO_CLIENT_ROOT}/Source/Application/WickedAuthoritativeSpawnSnapshot.cpp
+    ${DMO_CLIENT_ROOT}/Source/Application/WickedPlayerEntrySubstrate.cpp
+    ${DMO_CLIENT_ROOT}/Source/Application/WickedFrontDoorService.cpp
+    ${DMO_CLIENT_ROOT}/Source/Application/WickedStartupFlowShell.cpp
+    ${DMO_CLIENT_ROOT}/Source/Application/WickedFrontDoorAuthUiService.cpp
+    ${DMO_CLIENT_ROOT}/Source/Application/WickedAccountExchangeProvider.cpp
+    ${DMO_CLIENT_ROOT}/Source/Application/WickedUiRuntimeService.cpp
+    ${DMO_CLIENT_ROOT}/Source/Application/WickedUiPrototypeHarness.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Debug/WickedFrontDoorDebugPanel.cpp
 )
 target_include_directories(dmo_wicked_ui_min PRIVATE
     ${DMO_CLIENT_ROOT}/Source
