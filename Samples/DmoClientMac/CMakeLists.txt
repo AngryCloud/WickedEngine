@@ -80,6 +80,7 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/Application/WickedAccountExchangeProvider.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedGameplayUiInteractionRuntime.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedGameplayUiProjector.cpp
+    ${DMO_CLIENT_ROOT}/Source/Application/WickedInventorySessionRuntime.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedUiRuntimeService.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedUiPrototypeHarness.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedSessionTargetingRuntime.cpp
