@@ -231,6 +231,8 @@ compile_commands.json
 
 # MAC:
 xcuserdata/
+build-dmo-validation/
+build-*/
 
 # Others
 log.txt

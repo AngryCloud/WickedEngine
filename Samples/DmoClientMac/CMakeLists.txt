@@ -69,13 +69,16 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/UI/WickedFrontDoorEnterWorldScreen.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Projection/WickedFrontDoorHost.cpp
     ${DMO_CLIENT_ROOT}/Source/Foundation/WickedEventKernel.cpp
+    ${DMO_CLIENT_ROOT}/Source/Chat/WickedChatRuntime.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedClientServiceDirectory.cpp
+    ${DMO_CLIENT_ROOT}/Source/Application/WickedAdmittedSessionRuntime.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedAuthoritativeSpawnSnapshot.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedPlayerEntrySubstrate.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedFrontDoorService.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedStartupFlowShell.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedFrontDoorAuthUiService.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedAccountExchangeProvider.cpp
+    ${DMO_CLIENT_ROOT}/Source/Application/WickedGameplayUiProjector.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedUiRuntimeService.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedUiPrototypeHarness.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Debug/WickedFrontDoorDebugPanel.cpp
