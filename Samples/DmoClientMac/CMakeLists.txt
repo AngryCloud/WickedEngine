@@ -78,6 +78,7 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/Application/WickedStartupFlowShell.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedFrontDoorAuthUiService.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedAccountExchangeProvider.cpp
+    ${DMO_CLIENT_ROOT}/Source/Application/WickedGameplayUiInteractionRuntime.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedGameplayUiProjector.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedUiRuntimeService.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedUiPrototypeHarness.cpp
