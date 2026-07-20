@@ -52,6 +52,7 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/Inventory/WickedItemIconCache.cpp
     ${DMO_CLIENT_ROOT}/Source/Inventory/WickedItemFramingCatalog.cpp
     ${DMO_CLIENT_ROOT}/Source/Inventory/WickedItemTooltipModel.cpp
+    ${DMO_CLIENT_ROOT}/Source/Inventory/WickedItemTooltipRecordAdapter.cpp
     ${DMO_CLIENT_ROOT}/Source/Inventory/WickedIconCacheSidecar.cpp
     # Right-click context menu model + its split-policy dependency (Phase E).
     ${DMO_CLIENT_ROOT}/Source/Inventory/WickedInventoryActionPolicy.cpp
