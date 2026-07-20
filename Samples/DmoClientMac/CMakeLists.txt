@@ -48,6 +48,7 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/Inventory/WickedInventoryIconBinding.cpp
     ${DMO_CLIENT_ROOT}/Source/Inventory/WickedInventoryPanelRuntime.cpp
     ${DMO_CLIENT_ROOT}/Source/Inventory/WickedInventoryRuntimeServices.cpp
+    ${DMO_CLIENT_ROOT}/Source/Inventory/WickedInventoryViewModel.cpp
     ${DMO_CLIENT_ROOT}/Source/Inventory/WickedInventoryWorldDropIntentClient.cpp
     ${DMO_CLIENT_ROOT}/Source/Inventory/WickedItemIconCache.cpp
     ${DMO_CLIENT_ROOT}/Source/Inventory/WickedItemFramingCatalog.cpp
