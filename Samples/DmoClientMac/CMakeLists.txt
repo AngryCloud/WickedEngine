@@ -65,6 +65,7 @@ add_library(dmo_wicked_ui_min STATIC
     # Integrated pre-existing portable Journal presenter layer (Source/Presenters).
     ${DMO_CLIENT_ROOT}/Source/Presenters/WickedJournalBookShell.cpp
     ${DMO_CLIENT_ROOT}/Source/Presenters/WickedJournalTabPresenter.cpp
+    ${DMO_CLIENT_ROOT}/Source/Presenters/WickedLedgerPresenter.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Substrate/WickedUISubstrate.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/WickedFrontDoorAuthScreen.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/WickedFrontDoorAvatarSelectionScreen.cpp

@@ -231,6 +231,7 @@ public:
     void Load() override
     {
         wi::RenderPath2D::Load();
+        WickedUI::SetFrontDoorLogicalSize(GetLogicalWidth(), GetLogicalHeight());
         m_sink.gui = &GetGUI();
         const std::size_t n = Reproject();
         m_lastStructureToken = WickedUI::FrontDoorStructureToken();
@@ -279,6 +280,7 @@ public:
         }
 
         wi::RenderPath2D::Update(dt);
+        WickedUI::SetFrontDoorLogicalSize(GetLogicalWidth(), GetLogicalHeight());
 
         // Advance controllers (Refresh/animation — e.g. the loading bar).
         WickedUI::TickFrontDoor(dt);
