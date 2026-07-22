@@ -36,6 +36,7 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedInventoryWindowController.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedJournalWindowController.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedCharacterSheetController.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedConversationAmbientBarkController.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedConversationPanelController.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedChatWindowController.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedServicePointController.cpp
