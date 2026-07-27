@@ -88,6 +88,8 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/Application/WickedUiRuntimeService.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedUiPrototypeHarness.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedSessionTargetingRuntime.cpp
+    ${DMO_CLIENT_ROOT}/Source/Weather/WickedWeatherPacketIngress.cpp
+    ${DMO_CLIENT_ROOT}/Source/Weather/WickedWeatherRuntimeHub.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Debug/WickedFrontDoorDebugPanel.cpp
 )
 target_include_directories(dmo_wicked_ui_min PRIVATE
