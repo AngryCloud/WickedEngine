@@ -22,6 +22,8 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/UI/Substrate/WickedUIScreenHost.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Controllers/WickedUIScreenController.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Controllers/WickedFrontDoorControllers.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Localization/WickedLocalizationRuntime.cpp
+    ${DMO_CLIENT_ROOT}/Source/UI/Localization/WickedUiPreferenceStore.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Theme/WickedUIThemePack.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Theme/WickedUIThemeSystem.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Projection/WickedGuiProjector.cpp
