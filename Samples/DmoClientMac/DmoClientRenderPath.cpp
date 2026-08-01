@@ -13,10 +13,14 @@
 
 #include "UI/Projection/WickedUIVisualSink.h"
 #include "UI/Projection/WickedFrontDoorHost.h"
+#include "Application/WickedGodClientRuntimeAccess.h"
+#include "GodClient/WickedGodClientEditorBridgeTypes.h"
+#include "wiGUI.h"
 
 #include <cstdio>
 #include <memory>
 #include <vector>
+#include <unordered_map>
 
 namespace {
 
@@ -225,6 +229,132 @@ public:
     }
 };
 
+class DmoGodClientPanelWindowFactory final : public dmo::wicked::IWickedGodClientPanelWindowFactory
+{
+public:
+    explicit DmoGodClientPanelWindowFactory(wi::gui::GUI& gui) noexcept
+        : m_gui(gui)
+    {
+    }
+
+    bool CreatePanelWindow(const dmo::wicked::GodClientEditorPanelKind kind,
+                           const std::uint64_t panelInstanceId) override
+    {
+        if (m_windows.find(panelInstanceId) != m_windows.end())
+            return true;
+
+        auto window = std::make_unique<wi::gui::Window>();
+        window->Create(PanelTitle(kind), wi::gui::Window::WindowControls::CLOSE);
+        window->SetName("godclient.panel." + std::to_string(panelInstanceId));
+        const XMFLOAT4 layout = ResolvePanelLayout(kind, static_cast<std::uint32_t>(m_windows.size()));
+        window->SetSize(XMFLOAT2(layout.z, layout.w));
+        window->SetPos(XMFLOAT2(layout.x, layout.y));
+        window->SetColor(wi::Color(44, 44, 56, 235));
+
+        auto body = std::make_unique<wi::gui::Label>();
+        body->SetName(window->GetName() + ".body");
+        body->SetPos(XMFLOAT2(12.0f, 36.0f));
+        body->SetSize(XMFLOAT2(layout.z - 24.0f, layout.w - 80.0f));
+        body->SetText(PanelBody(kind));
+        body->SetColor(wi::Color(228, 228, 232, 255));
+        window->AddWidget(body.get(), wi::gui::Window::AttachmentOptions::NONE);
+
+        m_gui.AddWidget(window.get());
+        OwnedWindow owned;
+        owned.window = std::move(window);
+        owned.body = std::move(body);
+        m_windows.emplace(panelInstanceId, std::move(owned));
+        return true;
+    }
+
+    void DestroyPanelWindow(const std::uint64_t panelInstanceId) override
+    {
+        const auto it = m_windows.find(panelInstanceId);
+        if (it == m_windows.end())
+            return;
+        m_gui.RemoveWidget(it->second.window.get());
+        m_windows.erase(it);
+    }
+
+private:
+    struct OwnedWindow
+    {
+        std::unique_ptr<wi::gui::Window> window;
+        std::unique_ptr<wi::gui::Label> body;
+    };
+
+    static const char* PanelTitle(const dmo::wicked::GodClientEditorPanelKind kind) noexcept
+    {
+        using dmo::wicked::GodClientEditorPanelKind;
+        switch (kind)
+        {
+        case GodClientEditorPanelKind::AssetPlacer: return "Asset Placer";
+        case GodClientEditorPanelKind::WorldEditorHub: return "World Builder Hub";
+        case GodClientEditorPanelKind::TravelMap: return "Travel Map";
+        case GodClientEditorPanelKind::GaussianSplat: return "Gaussian Splat";
+        case GodClientEditorPanelKind::Terrain: return "Terrain Tools";
+        case GodClientEditorPanelKind::Custom: break;
+        }
+        return "Godclient Panel";
+    }
+
+    static std::string PanelBody(const dmo::wicked::GodClientEditorPanelKind kind)
+    {
+        using dmo::wicked::GodClientEditorPanelKind;
+        switch (kind)
+        {
+        case GodClientEditorPanelKind::AssetPlacer:
+            return "Recovered editor shell for asset placement. Full placement controls can be adapted into this visible window incrementally.";
+        case GodClientEditorPanelKind::WorldEditorHub:
+            return "Recovered world-builder hub shell. Use this as the bounded in-client editor frame while the player HUD remains active underneath.";
+        case GodClientEditorPanelKind::TravelMap:
+            return "Recovered travel-map editor shell. This window is mounted on the live GUI path rather than opening headless.";
+        case GodClientEditorPanelKind::GaussianSplat:
+            return "Recovered Gaussian splat editing shell. Rendering/editor controls can be moved here panel by panel.";
+        case GodClientEditorPanelKind::Terrain:
+            return "Recovered terrain tooling shell. This is the visible anchor for terrain, spline, and world-shaping tools.";
+        case GodClientEditorPanelKind::Custom:
+            break;
+        }
+        return "Recovered Godclient panel shell.";
+    }
+
+    static XMFLOAT4 ResolvePanelLayout(
+        const dmo::wicked::GodClientEditorPanelKind kind,
+        const std::uint32_t fallbackIndex) noexcept
+    {
+        const float logicalWidth = WickedUI::GetFrontDoorLogicalWidth();
+        const float logicalHeight = WickedUI::GetFrontDoorLogicalHeight();
+        const float margin = 24.0f;
+        const float rightColumnX = logicalWidth - 340.0f - margin;
+        const float leftColumnX = margin;
+        const float midLeftX = margin + 320.0f;
+        switch (kind)
+        {
+        case dmo::wicked::GodClientEditorPanelKind::WorldEditorHub:
+            return XMFLOAT4(leftColumnX, margin, 300.0f, 220.0f);
+        case dmo::wicked::GodClientEditorPanelKind::AssetPlacer:
+            return XMFLOAT4(leftColumnX, logicalHeight - 250.0f, 300.0f, 220.0f);
+        case dmo::wicked::GodClientEditorPanelKind::TravelMap:
+            return XMFLOAT4(rightColumnX, margin, 340.0f, 240.0f);
+        case dmo::wicked::GodClientEditorPanelKind::GaussianSplat:
+            return XMFLOAT4(rightColumnX, 276.0f, 340.0f, 220.0f);
+        case dmo::wicked::GodClientEditorPanelKind::Terrain:
+            return XMFLOAT4(rightColumnX, logicalHeight - 250.0f, 340.0f, 220.0f);
+        case dmo::wicked::GodClientEditorPanelKind::Custom:
+        default:
+            break;
+        }
+
+        const float x = (fallbackIndex % 2u) == 0u ? midLeftX : rightColumnX;
+        const float y = margin + static_cast<float>(fallbackIndex / 2u) * 244.0f;
+        return XMFLOAT4(x, y, 320.0f, 220.0f);
+    }
+
+    wi::gui::GUI& m_gui;
+    std::unordered_map<std::uint64_t, OwnedWindow> m_windows;
+};
+
 class DmoFrontDoorPath final : public wi::RenderPath2D
 {
 public:
@@ -233,6 +363,9 @@ public:
         wi::RenderPath2D::Load();
         WickedUI::SetFrontDoorLogicalSize(GetLogicalWidth(), GetLogicalHeight());
         m_sink.gui = &GetGUI();
+        if (!m_godClientPanelFactory)
+            m_godClientPanelFactory = std::make_unique<DmoGodClientPanelWindowFactory>(GetGUI());
+        (void)InstallGodClientPanelWindowFactory(m_godClientPanelFactory.get());
         const std::size_t n = Reproject();
         m_lastStructureToken = WickedUI::FrontDoorStructureToken();
         m_lastValueToken = WickedUI::FrontDoorStateToken();
@@ -336,6 +469,7 @@ private:
     }
 
     WiGuiSink m_sink;
+    std::unique_ptr<DmoGodClientPanelWindowFactory> m_godClientPanelFactory;
     bool m_reprojectPending = false;
     bool m_waitForIdleMouseFrame = false;
     bool m_hasLastPointer = false;
