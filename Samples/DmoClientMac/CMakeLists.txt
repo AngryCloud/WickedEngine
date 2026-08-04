@@ -116,6 +116,10 @@ set(LIB_DXCOMPILER "libdxcompiler.dylib")
 
 add_executable(DmoClientMac ${SOURCE_FILES})
 
+add_executable(DmoClientMacGodClientPanelProbe
+    ${DMO_CLIENT_ROOT}/Tests/WickedGodClientPanelWindowFactorySmoke.cpp
+)
+
 # ARC + Obj-C++ for the AppKit window shell.
 set_source_files_properties(main.mm PROPERTIES
     COMPILE_FLAGS "-fobjc-arc"
@@ -128,10 +132,18 @@ target_link_libraries(DmoClientMac PUBLIC
     "-framework Carbon"
 )
 
+target_link_libraries(DmoClientMacGodClientPanelProbe PUBLIC
+    WickedEngine
+)
+
 # Only the ENGINE-NEUTRAL POD headers (WickedUIVisualSink.h / WickedDemoScreen.h)
 # are included by the app; NOT Source/Support (shim), so the app's own
 # "WickedEngine.h" resolves to the real engine, not the shim.
 target_include_directories(DmoClientMac PRIVATE
+    ${DMO_CLIENT_ROOT}/Source
+)
+
+target_include_directories(DmoClientMacGodClientPanelProbe PRIVATE
     ${DMO_CLIENT_ROOT}/Source
 )
 
