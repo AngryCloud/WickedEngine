@@ -94,6 +94,7 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/Application/WickedAdmittedSessionRuntime.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedAuthoritativeSpawnSnapshot.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedPlayerEntrySubstrate.cpp
+    ${DMO_CLIENT_ROOT}/Source/Application/WickedPlayerLoopEdgeWireCodec.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedFrontDoorService.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedStartupFlowShell.cpp
     ${DMO_CLIENT_ROOT}/Source/Application/WickedFrontDoorAuthUiService.cpp
