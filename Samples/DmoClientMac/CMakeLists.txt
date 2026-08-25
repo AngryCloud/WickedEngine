@@ -44,6 +44,19 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedChatWindowController.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedServicePointController.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Screens/WickedSettingsWindowController.cpp
+    ${DMO_CLIENT_ROOT}/Source/Stats/WickedStatReadModel.cpp
+    ${DMO_CLIENT_ROOT}/Source/Stats/WickedStatServerSnapshotAdapter.cpp
+    ${DMO_CLIENT_ROOT}/Source/Stats/WickedCharacterCreationPresenter.cpp
+    ${DMO_CLIENT_ROOT}/Source/CharacterCreation/WickedRaceClassCatalog.cpp
+    ${DMO_CLIENT_ROOT}/Source/CharacterCreation/WickedCharacterNameRules.cpp
+    ${DMO_CLIENT_ROOT}/Source/CharacterCreation/WickedAppearanceCustomizationCatalog.cpp
+    ${DMO_CLIENT_ROOT}/Source/CharacterCreation/WickedMorphSession.cpp
+    ${DMO_CLIENT_ROOT}/Source/CharacterCreation/WickedAppearancePreviewAssembler.cpp
+    ${DMO_CLIENT_ROOT}/Source/CharacterCreation/WickedCreationPreviewService.cpp
+    ${DMO_CLIENT_ROOT}/Source/CharacterCreation/WickedCreationPreviewMeshBinder.cpp
+    ${DMO_CLIENT_ROOT}/Source/CharacterCreation/WickedCreationPreviewGpuAssembler.cpp
+    ${DMO_CLIENT_ROOT}/Source/CharacterCreation/WickedAppearanceConfirmCodec.cpp
+    ${DMO_CLIENT_ROOT}/Source/CharacterCreation/WickedCharacterCreateRuntime.cpp
     ${DMO_CLIENT_ROOT}/Source/Gear/WickedGearTypes.cpp
     ${DMO_CLIENT_ROOT}/Source/Gear/WickedGearEquipRules.cpp
     ${DMO_CLIENT_ROOT}/Source/Inventory/WickedInventoryFootprintCatalog.cpp
