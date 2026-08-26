@@ -117,6 +117,17 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/Locomotion/WickedCharacterPhysicsController.cpp
     ${DMO_CLIENT_ROOT}/Source/Locomotion/WickedLocomotionController.cpp
     ${DMO_CLIENT_ROOT}/Source/Locomotion/WickedFollowCamera.cpp
+    # MOVE-06E: the traversal lane, now with a caller.
+    ${DMO_CLIENT_ROOT}/Source/Traversal/WickedTraversalTypes.cpp
+    ${DMO_CLIENT_ROOT}/Source/Traversal/WickedTraversalLockSeam.cpp
+    ${DMO_CLIENT_ROOT}/Source/Traversal/WickedTraversalProfileCatalog.cpp
+    ${DMO_CLIENT_ROOT}/Source/Traversal/WickedTraversalStateMachine.cpp
+    ${DMO_CLIENT_ROOT}/Source/Traversal/WickedTraversalAffordanceQueryService.cpp
+    ${DMO_CLIENT_ROOT}/Source/Traversal/WickedTraversalAnimationPresenter.cpp
+    ${DMO_CLIENT_ROOT}/Source/Traversal/WickedTraversalIKPresenter.cpp
+    ${DMO_CLIENT_ROOT}/Source/Traversal/WickedTraversalPredictionClient.cpp
+    ${DMO_CLIENT_ROOT}/Source/Traversal/WickedTraversalIntegrationRuntime.cpp
+    ${DMO_CLIENT_ROOT}/Source/Traversal/WickedTraversalLocomotionBridge.cpp
 )
 target_include_directories(dmo_wicked_ui_min PRIVATE
     ${DMO_CLIENT_ROOT}/Source
@@ -140,6 +151,8 @@ set(SOURCE_FILES
     # WICKED-MOVE-06C: the composition that REFERENCES the engine-free modules,
     # so the linker actually pulls them out of libdmo_wicked_ui_min.a. Without a
     # referencing TU they sit in the archive and never reach the binary.
+    ${DMO_CLIENT_ROOT}/Source/Collision/WickedCollisionLayerPolicy.cpp
+    ${DMO_CLIENT_ROOT}/Source/Collision/WickedEngineCollisionQuery.cpp
     ${DMO_CLIENT_ROOT}/Source/Locomotion/WickedZoneWalkComposition.cpp
 )
 
