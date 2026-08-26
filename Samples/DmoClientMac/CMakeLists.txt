@@ -108,6 +108,13 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/Weather/WickedWeatherPacketIngress.cpp
     ${DMO_CLIENT_ROOT}/Source/Weather/WickedWeatherRuntimeHub.cpp
     ${DMO_CLIENT_ROOT}/Source/UI/Debug/WickedFrontDoorDebugPanel.cpp
+    # WICKED-MOVE-06A/06B2: input action map + locomotion policy. Engine-free by
+    # construction (std headers only), so they compile cleanly on the shim side
+    # and the real-engine app reaches them through POD seams -- exactly the
+    # boundary this target exists to keep.
+    ${DMO_CLIENT_ROOT}/Source/Input/WickedInputActionMap.cpp
+    ${DMO_CLIENT_ROOT}/Source/Input/WickedInputDefaultBindings.cpp
+    ${DMO_CLIENT_ROOT}/Source/Locomotion/WickedCharacterPhysicsController.cpp
 )
 target_include_directories(dmo_wicked_ui_min PRIVATE
     ${DMO_CLIENT_ROOT}/Source
@@ -122,6 +129,12 @@ set_target_properties(dmo_wicked_ui_min PROPERTIES
 set(SOURCE_FILES
     main.mm
     DmoClientRenderPath.cpp
+    # WICKED-MOVE-06B2: the REAL wi::physics character adapter. Compiled HERE,
+    # in the app target, because this target's include path omits
+    # Source/Support -- so its `WickedEngine.h` is the real engine, not the
+    # shim. Compiling it on the shim side (as MOVE-06B first did) produced code
+    # that called stubs and could never move a character.
+    ${DMO_CLIENT_ROOT}/Source/Locomotion/WickedEngineCharacterPhysicsBackend.cpp
 )
 
 # macOS runtime shader compiler is the arm64 .dylib (the .so is Linux x86-64).
