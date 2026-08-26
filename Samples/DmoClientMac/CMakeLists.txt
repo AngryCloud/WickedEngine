@@ -116,6 +116,7 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/Input/WickedInputDefaultBindings.cpp
     ${DMO_CLIENT_ROOT}/Source/Locomotion/WickedCharacterPhysicsController.cpp
     ${DMO_CLIENT_ROOT}/Source/Locomotion/WickedLocomotionController.cpp
+    ${DMO_CLIENT_ROOT}/Source/Locomotion/WickedFollowCamera.cpp
 )
 target_include_directories(dmo_wicked_ui_min PRIVATE
     ${DMO_CLIENT_ROOT}/Source
