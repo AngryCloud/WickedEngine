@@ -115,6 +115,7 @@ add_library(dmo_wicked_ui_min STATIC
     ${DMO_CLIENT_ROOT}/Source/Input/WickedInputActionMap.cpp
     ${DMO_CLIENT_ROOT}/Source/Input/WickedInputDefaultBindings.cpp
     ${DMO_CLIENT_ROOT}/Source/Locomotion/WickedCharacterPhysicsController.cpp
+    ${DMO_CLIENT_ROOT}/Source/Locomotion/WickedLocomotionController.cpp
 )
 target_include_directories(dmo_wicked_ui_min PRIVATE
     ${DMO_CLIENT_ROOT}/Source
@@ -135,6 +136,10 @@ set(SOURCE_FILES
     # shim. Compiling it on the shim side (as MOVE-06B first did) produced code
     # that called stubs and could never move a character.
     ${DMO_CLIENT_ROOT}/Source/Locomotion/WickedEngineCharacterPhysicsBackend.cpp
+    # WICKED-MOVE-06C: the composition that REFERENCES the engine-free modules,
+    # so the linker actually pulls them out of libdmo_wicked_ui_min.a. Without a
+    # referencing TU they sit in the archive and never reach the binary.
+    ${DMO_CLIENT_ROOT}/Source/Locomotion/WickedZoneWalkComposition.cpp
 )
 
 # macOS runtime shader compiler is the arm64 .dylib (the .so is Linux x86-64).
