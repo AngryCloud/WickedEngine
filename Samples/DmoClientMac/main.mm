@@ -16,6 +16,8 @@
 
 #include "WickedEngine.h"
 #include "DmoClientRenderPath.h"
+#include "Client/DmoClientApplication.h"
+#include "Client/DmoClientBootScreen.h"
 #include "Application/WickedUiPrototypeHarness.h"
 #include "UI/Screens/WickedFrontDoorScreens.h"
 #include "Inventory/WickedInventoryRuntimeServices.h"
@@ -111,42 +113,15 @@ void ShutdownPrototypeHarness()
 	}
 }
 
-std::optional<std::uint32_t> ParsePrototypeScreenName(const char* value)
-{
-	if (value == nullptr || value[0] == '\0')
-		return std::nullopt;
-	const std::string text(value);
-	if (text == "auth") return WickedUI::kAuthScreenId;
-	if (text == "select") return WickedUI::kCharacterSelectScreenId;
-	if (text == "create") return WickedUI::kCharacterCreateScreenId;
-	if (text == "loading") return WickedUI::kLoadingScreenId;
-	if (text == "world") return WickedUI::kWorldBackdropScreenId;
-	if (text == "inventory") return WickedUI::kInventoryWindowScreenId;
-	if (text == "journal") return WickedUI::kJournalWindowScreenId;
-	if (text == "character") return WickedUI::kCharacterSheetScreenId;
-	if (text == "chat") return WickedUI::kChatWindowScreenId;
-	if (text == "service") return WickedUI::kServicePointScreenId;
-	if (text == "settings") return WickedUI::kSettingsWindowScreenId;
-	if (text == "menu") return WickedUI::kMenuWindowScreenId;
-	return std::nullopt;
-}
-
+// The screen-name table that used to live here is gone: it is now
+// ParseDmoBootScreenName in Source/Client/DmoClientBootScreen.cpp, shared with
+// the Windows client and unit-tested. This platform had the table and Windows
+// did not, which is precisely why only macOS could boot to a named screen.
 void ConfigurePrototypeBootScreenFromEnvironment()
 {
-	if (const char* named = std::getenv("DMO_UI_PROTOTYPE_SCREEN"))
-	{
-		if (const auto parsed = ParsePrototypeScreenName(named); parsed.has_value())
-			g_uiPrototypeBootScreen = parsed;
-	}
-	if (!g_uiPrototypeBootScreen.has_value())
-	{
-		if (const char* numeric = std::getenv("DMO_UI_SHOT_SCREEN"))
-		{
-			const long id = std::strtol(numeric, nullptr, 10);
-			if (id > 0)
-				g_uiPrototypeBootScreen = static_cast<std::uint32_t>(id);
-		}
-	}
+	g_uiPrototypeBootScreen = ResolveDmoBootScreen(
+		std::getenv("DMO_UI_PROTOTYPE_SCREEN"),
+		std::getenv("DMO_UI_SHOT_SCREEN"));
 }
 
 } // namespace
@@ -485,16 +460,25 @@ extern bool running; // defined below; the run loop exits when this goes false
 
 // Load + activate the DMO front-door path once the engine is initialized
 // (the engine never auto-calls RenderPath::Load — see Editor::Initialize).
-class DmoApplication : public wi::Application
+// Derives from the SHARED client application (WICKED-CLIENT-LAYERS-02). The
+// front-door boot sequence, the UI prototype harness lifecycle and the
+// boot-screen decision all live in the base and are identical on Windows. What
+// stays here is genuinely macOS-side: the inventory icon-bake render hooks and
+// the windowed 3D probe.
+class DmoApplication : public DmoClientApplication
 {
 public:
-	void Initialize() override
+	void OnBeforeFrontDoor() override
 	{
-		wi::Application::Initialize();
 		WickedInventory::SetInventoryPreviewImageResolver(
 			[](const WickedInventory::InventoryPreviewRequest& request) {
 				return BuildInventoryPreviewImage(request);
 			});
+	}
+
+	// Returns true to CLAIM the app: the front door is then never activated.
+	[[nodiscard]] bool TryActivateDiagnosticPath() override
+	{
 
 		// DMO_3D_PROBE: windowed 3D-render sanity check. Instead of the 2D front door,
 		// stand up a RenderPath3D with a lit item (cube, or DMO_ITEM_BAKE_MODEL=<path>) and
@@ -544,14 +528,10 @@ public:
 			std::fprintf(stderr, "[DmoClient] item preview active (%d objects, r=%.3f)%s\n",
 				static_cast<int>(m_itemScene.objects.GetCount()), radius,
 				m_captureMode ? " [capture]" : "");
-			return;
+			return true;
 		}
 
-		ConfigurePrototypeBootScreenFromEnvironment();
-		EnsurePrototypeHarnessInitialized();
-		wi::RenderPath2D& path = DmoClient::FrontDoorPath();
-		path.Load();
-		ActivatePath(&path);
+		return false;
 	}
 
 	// Queue an inventory item to be rendered to a PNG. Called (on the main thread, during
@@ -988,14 +968,19 @@ int main(int argc, char* argv[])
 					}
 				}
 
+				// ⚠ No TickPrototypeHarness here any more. DmoClientApplication::Update
+				// ticks it INSIDE the engine frame, which is what the Windows client
+				// always did. Keeping the old call would tick the harness twice per
+				// frame -- double-advancing every UI animation and timer.
 				application.Run();
-				TickPrototypeHarness(1.0 / 60.0);
 			}
 		}
 
 		// Persist the L2 icon-cache manifest so the next launch resolves icons with zero re-bake.
 		SaveIconSidecar();
-		ShutdownPrototypeHarness();
+		// The application owns the harness now; ShutdownPrototypeHarness() remains
+		// only for the headless offscreen paths, which never build an application.
+		application.ShutdownClient();
 		wi::jobsystem::ShutDown();
 	}
 

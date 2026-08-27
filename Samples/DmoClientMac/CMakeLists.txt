@@ -69,6 +69,11 @@ target_link_libraries(DmoClientMacGodClientPanelProbe PUBLIC
 # "WickedEngine.h" resolves to the real engine, not the shim.
 target_include_directories(DmoClientMac PRIVATE
     ${DMO_CLIENT_ROOT}/Source
+    # The shared render path still lives in this directory (see the debt note in
+    # cmake/DmoClientLayers.cmake). App-layer sources compiled from Source/Client
+    # include "DmoClientRenderPath.h", so the dir must be a real -I, not just the
+    # target's own source dir. The Windows target already did this.
+    "${DMO_CLIENT_RENDER_PATH_DIR}"
 )
 
 target_include_directories(DmoClientMacGodClientPanelProbe PRIVATE
