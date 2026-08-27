@@ -53,6 +53,12 @@ set_source_files_properties(main.mm PROPERTIES
     COMPILE_FLAGS "-fobjc-arc"
 )
 
+# WICKED-MOVE-06I: the engine project sets CMAKE_CXX_STANDARD 17 globally, which the
+# app target inherits -- and Support/WickedEngineCompat.h uses a `requires` expression
+# (C++20). The Windows target already compiles the same headers at cxx_std_20, so the
+# two platforms were silently on different standards. Align them.
+set_target_properties(DmoClientMac PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+
 target_link_libraries(DmoClientMac PUBLIC
     WickedEngine
     dmo_wicked_ui_min
