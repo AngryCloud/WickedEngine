@@ -14,19 +14,86 @@ get_filename_component(DMO_CLIENT_ROOT "${CMAKE_SOURCE_DIR}/../.." ABSOLUTE)
 # targets include this same file, so a new client module is added ONCE.
 include("${DMO_CLIENT_ROOT}/cmake/DmoClientLayers.cmake")
 
-# --- dmo_wicked_ui_min: the minimal substrate+projector subset, compiled against
-# the DMO SHIM in its OWN target with its OWN include dirs. This keeps the shim
-# TUs isolated from the app's real-engine TUs (no XMFLOAT2 collision) and avoids
-# dragging the full dmo_wicked_core (OpenSSL/SQLite/audio/...). The app links this
-# and talks to it only through the engine-neutral POD sink interface.
-add_library(dmo_wicked_ui_min STATIC ${DMO_CLIENT_UI_MIN_SOURCES})
+# WICKED-CLIENT-LAYERS-04: THE portable client layer, converged.
+#
+# Renamed from dmo_wicked_ui_min, which built a curated 112-source subset from the
+# days when this was a UI-only sample. It is the macOS client now and it builds the
+# SAME 519-source list as the Windows client, from the one declaration in
+# cmake/DmoClientLayers.cmake.
+#
+# Deliberately the same target name as the client project's library: they are the
+# same library. If the two CMake projects are ever merged, CMake will refuse the
+# duplicate target -- the correct outcome, because it forces the merge to be decided
+# rather than silently producing two divergent copies again.
+add_library(dmo_wicked_core STATIC ${DMO_CLIENT_PORTABLE_SOURCES})
 
-target_include_directories(dmo_wicked_ui_min PRIVATE
-    ${DMO_CLIENT_ROOT}/Source
-    ${DMO_CLIENT_ROOT}/Source/Support   # the shim's WickedEngine.h (XMFLOAT2/4)
+# The include dirs travel WITH the source list. Two sufficed for the old subset; the
+# full portable layer needs all 57.
+# ⚠ PRIVATE, NOT PUBLIC. The app target links this library, and PUBLIC include dirs
+# would put Source/Support -- the SHIM -- on the app's include path, making its
+# WickedEngine.h resolve to the shim instead of the real engine. That would silently
+# convert the entire app layer into stub calls. The original curated target used
+# PRIVATE for precisely this reason; converging the source list must not lose it.
+target_include_directories(dmo_wicked_core PRIVATE ${DMO_CLIENT_PORTABLE_INCLUDE_DIRS})
+
+# Third-party include roots the portable layer needs. The client project supplies
+# these through its own vendoring targets; the engine project has no knowledge of
+# them, so they are named explicitly here.
+#
+# ⚠ This list is the price of two CMake projects. Each new vendored dependency the
+# portable layer picks up must be added here as well, and forgetting shows up as a
+# macOS-only "file not found". Converging the two PROJECTS (not just the source
+# list) is what finally removes this hazard -- see the debt note in the layers file.
+target_include_directories(dmo_wicked_core PRIVATE
+    ${DMO_CLIENT_ROOT}/external/spz
 )
-target_compile_definitions(dmo_wicked_ui_min PRIVATE DMO_WICKED_SHIM_INCLUDED=1)
-set_target_properties(dmo_wicked_ui_min PROPERTIES
+
+# ⚠ FetchContent DEPENDENCIES CANNOT BE SHARED ACROSS TWO CMAKE PROJECTS. yojimbo
+# and netcode are fetched into the CLIENT project's build tree, so the engine
+# project can only reach them by path -- which means the client must be configured
+# first. This is the sharpest remaining edge of having two projects, and it is the
+# thing that finally justifies merging them (see cmake/DmoClientLayers.cmake).
+#
+# If the path is absent we do NOT fail the configure: the two networking
+# translation units simply will not compile, and the error names the missing
+# header. Silently dropping them would give macOS a quietly smaller client than
+# Windows, which is the exact class of divergence this convergence exists to end.
+set(DMO_CLIENT_YOJIMBO_SRC "${DMO_CLIENT_ROOT}/build/_deps/dmo_wicked_yojimbo-src"
+    CACHE PATH "yojimbo sources fetched by the client project's CMake configure")
+if(EXISTS "${DMO_CLIENT_YOJIMBO_SRC}/netcode/netcode.h")
+    target_include_directories(dmo_wicked_core PRIVATE
+        ${DMO_CLIENT_YOJIMBO_SRC}
+        ${DMO_CLIENT_YOJIMBO_SRC}/include     # yojimbo.h
+        ${DMO_CLIENT_YOJIMBO_SRC}/netcode
+        ${DMO_CLIENT_YOJIMBO_SRC}/reliable
+        ${DMO_CLIENT_YOJIMBO_SRC}/serialize
+        ${DMO_CLIENT_YOJIMBO_SRC}/sodium
+    )
+    target_compile_definitions(dmo_wicked_core PRIVATE NETCODE_RELEASE)
+else()
+    message(WARNING
+        "DmoClientMac: yojimbo sources not found at ${DMO_CLIENT_YOJIMBO_SRC}. "
+        "Configure the client project first (cmake -S . -B build) so FetchContent "
+        "populates them, or the networking translation units will not compile.")
+endif()
+
+# ⚠ The engine project disables exceptions globally (-fno-exceptions in
+# external/WickedEngine/CMakeLists.txt). The portable client layer uses try/throw in a
+# few validation paths, so it needs exceptions back for ITS translation units only --
+# PRIVATE, so the engine and the app target keep the engine's setting.
+#
+# This single flag is what the previous convergence attempt died on: it stopped at
+# WickedTerrainProjection.cpp's `throw` and the cause looked like a source problem
+# rather than a build-configuration one.
+if(NOT MSVC)
+    # RTTI as well as exceptions: the GodClient feature registry uses dynamic_cast.
+    target_compile_options(dmo_wicked_core PRIVATE
+        $<$<COMPILE_LANGUAGE:CXX>:-fexceptions>
+        $<$<COMPILE_LANGUAGE:CXX>:-frtti>)
+endif()
+
+target_compile_definitions(dmo_wicked_core PRIVATE DMO_WICKED_SHIM_INCLUDED=1)
+set_target_properties(dmo_wicked_core PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
 )
@@ -61,7 +128,7 @@ set_target_properties(DmoClientMac PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUI
 
 target_link_libraries(DmoClientMac PUBLIC
     WickedEngine
-    dmo_wicked_ui_min
+    dmo_wicked_core
     "-framework AppKit"
     "-framework Carbon"
 )
