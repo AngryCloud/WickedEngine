@@ -7,6 +7,7 @@
 #include <cfloat>
 #include <cstdint>
 #include <type_traits>
+#include <array>
 
 #define arraysize(a) (sizeof(a) / sizeof(a[0]))
 
