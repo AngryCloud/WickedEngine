@@ -878,6 +878,90 @@ static bool RenderItemPreviewToFile(const std::string& modelPath, const std::str
 @interface DmoWindowDelegate : NSObject <NSWindowDelegate>
 @end
 
+
+// ---------------------------------------------------------------------------
+// Offscreen WORLD capture (DMO_WORLD_SHOT=<out.png>)
+// ---------------------------------------------------------------------------
+//
+// Why this exists alongside DMO_UI_SHOT: that path renders the 2D front door and
+// deliberately skips the eager 3D subsystems, so it can never show a zone. Zone
+// work needs to see the WORLD, and on a machine with no WindowServer access an
+// agent or CI job otherwise has to ask a human what is on screen — which is slow
+// and, worse, turns "does this look right?" into an opinion instead of an
+// artifact you can diff between runs.
+//
+// ⚠ GENERIC BY CONSTRUCTION. It captures whatever scene the harness booted
+// (DMO_TEST_SCENE) through the REAL application loop and the REAL active render
+// path. It knows nothing about any particular zone, and adds no branch to the
+// client's own update or render code — it only reads the finished frame.
+//
+//   DMO_WORLD_SHOT=<out.png>          enable, and where to write
+//   DMO_WORLD_SHOT_FRAMES=<n>         frames to settle first (default 600)
+//   DMO_WORLD_SHOT_KEEP_RUNNING=1     capture but do not exit
+//
+// The frame count matters: a zone streams prototypes in over many frames, and a
+// shot taken too early records a half-loaded world and looks like a bug.
+struct WorldShotRequest
+{
+    bool enabled = false;
+    std::string path;
+    int settleFrames = 600;
+    bool keepRunning = false;
+};
+
+static WorldShotRequest ResolveWorldShotRequest()
+{
+    WorldShotRequest request;
+    const char* out = std::getenv("DMO_WORLD_SHOT");
+    if (out == nullptr || out[0] == '\0')
+        return request;
+    request.enabled = true;
+    request.path = out;
+    if (const char* frames = std::getenv("DMO_WORLD_SHOT_FRAMES"))
+    {
+        const int parsed = std::atoi(frames);
+        if (parsed > 0)
+            request.settleFrames = parsed;
+    }
+    request.keepRunning = std::getenv("DMO_WORLD_SHOT_KEEP_RUNNING") != nullptr;
+    return request;
+}
+
+// Returns true once a capture has been written (or definitively failed), so the
+// caller can stop pumping frames.
+static bool TryCaptureWorldShot(const WorldShotRequest& request, int frameIndex)
+{
+    if (!request.enabled || frameIndex < request.settleFrames)
+        return false;
+
+    wi::RenderPath* const active = application.GetActivePath();
+    if (active == nullptr)
+    {
+        std::fprintf(stderr, "[DmoClient] world shot: no active render path\n");
+        return true;
+    }
+    // The world lives in the 3D result.
+    //
+    // ⚠ No dynamic_cast: the engine builds with -fno-rtti (WICKED_ENABLE_RTTI
+    // is OFF and DmoClientMac matches it, or it would not link). The codebase's
+    // existing idiom is to compare against the known path and static_cast, which
+    // is what DmoClientApplication does for its outline pass.
+    wi::RenderPath2D& frontDoor = DmoClient::FrontDoorPath();
+    if (active != &frontDoor)
+    {
+        std::fprintf(stderr,
+            "[DmoClient] world shot: active path is not the world path yet\n");
+        return true;
+    }
+    auto* const path3D = static_cast<wi::RenderPath3D*>(&frontDoor);
+
+    const bool ok = wi::helper::saveTextureToFile(path3D->GetRenderResult3D(), request.path);
+    std::fprintf(stderr, "[DmoClient] world shot %s after %d frames -> %s\n",
+                 ok ? "OK" : "FAIL", frameIndex, request.path.c_str());
+    std::fflush(stderr);
+    return true;
+}
+
 int main(int argc, char* argv[])
 {
 	wi::arguments::Parse(argc, argv);
@@ -911,6 +995,11 @@ int main(int argc, char* argv[])
 														 backing:NSBackingStoreBuffered
 														   defer:NO];
 		[window setTitle:@"DMO WICKED Client"];
+		// ⚠ WITHOUT THIS, macOS NEVER DELIVERS NSEventTypeMouseMoved AT ALL.
+		// Mouse-move events are opt-in per window; the default is off, so the
+		// run loop below can never see a bare mouse move (only drags) and camera
+		// look has nothing to read.
+		[window setAcceptsMouseMovedEvents:YES];
 		[window center];
 		[window makeKeyAndOrderFront:nil];
 
@@ -970,6 +1059,15 @@ int main(int argc, char* argv[])
 		application.infoDisplay.resolution = true;
 		application.infoDisplay.logical_size = true;
 
+		const WorldShotRequest worldShot = ResolveWorldShotRequest();
+		if (worldShot.enabled)
+		{
+			std::fprintf(stderr, "[DmoClient] world shot armed: %s after %d frames\n",
+			             worldShot.path.c_str(), worldShot.settleFrames);
+		}
+		int worldShotFrame = 0;
+		bool worldShotDone = false;
+
 		std::fprintf(stderr, "[DmoClient] Entering main run loop...\n");
 		std::fflush(stderr);
 		while (running)
@@ -1002,6 +1100,40 @@ int main(int argc, char* argv[])
 							break;
 						case NSEventTypeKeyUp:
 							break;
+
+						// ⚠⚠ FEED THE ENGINE'S MOUSE DELTA AND SCROLL QUEUES.
+						//
+						// wiInput's macOS path does `mouse = {}` each frame and
+						// then fills ONLY position and button state from
+						// CGEventSource. `delta_position` and `delta_wheel` come
+						// exclusively from `mouse_move_events` /
+						// `mouse_scroll_events`, which the PLATFORM LAYER must
+						// push (wiInput.cpp:257-268). Nothing here pushed them,
+						// so on macOS both were permanently zero -- no camera
+						// look, no wheel zoom, in every scene. Polling-based
+						// input (movement keys, mouse buttons) kept working,
+						// which is why this looked scene-specific.
+						case NSEventTypeMouseMoved:
+						case NSEventTypeLeftMouseDragged:
+						case NSEventTypeRightMouseDragged:
+						case NSEventTypeOtherMouseDragged:
+							wi::input::AddMouseMoveDeltaEvent(
+								XMFLOAT2(float(event.deltaX), float(event.deltaY)));
+							[NSApp sendEvent:event];
+							break;
+
+						case NSEventTypeScrollWheel: {
+							// A trackpad reports precise (pixel) deltas that are
+							// an order of magnitude larger than a wheel's line
+							// deltas. Normalising keeps one zoom speed across
+							// both instead of making the trackpad unusable.
+							double dy = event.scrollingDeltaY;
+							if (event.hasPreciseScrollingDeltas)
+								dy *= 0.1;
+							wi::input::AddMouseScrollEvent(float(dy));
+							[NSApp sendEvent:event];
+						} break;
+
 						default:
 							[NSApp sendEvent:event];
 							break;
@@ -1013,6 +1145,15 @@ int main(int argc, char* argv[])
 				// always did. Keeping the old call would tick the harness twice per
 				// frame -- double-advancing every UI animation and timer.
 				application.Run();
+
+				if (worldShot.enabled && !worldShotDone)
+				{
+					// Captured AFTER Run(), so the frame is complete.
+					worldShotDone = TryCaptureWorldShot(worldShot, worldShotFrame);
+					if (worldShotDone && !worldShot.keepRunning)
+						running = false;
+					++worldShotFrame;
+				}
 			}
 		}
 
