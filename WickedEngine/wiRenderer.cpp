@@ -6692,6 +6692,23 @@ void SetShadowPropsCube(int resolution)
 	max_shadow_resolution_cube = resolution;
 }
 
+// DMO: an object whose mesh entity has been destroyed keeps `mesh_index` at
+// ~0u until the next RunObjectUpdateSystem, and the LOD paths below index
+// `meshes[object.mesh_index]` with no validity check -- `meshes[~0u]` is a wild
+// reference and `GetLODCount()` on it segfaults. That is not hypothetical: it
+// took the client down from DrawShadowmaps whenever streaming evicted an entity
+// whose meshes other objects still referenced.
+//
+// An empty MeshComponent has subsets_per_lod == 0, so GetLODCount() answers 1
+// and the object simply resolves to LOD 0 instead of crashing the renderer.
+static const MeshComponent& SafeObjectMesh(const Scene& scene, const ObjectComponent& object)
+{
+	static const MeshComponent meshless;
+	if (object.mesh_index >= (uint32_t)scene.meshes.GetCount())
+		return meshless;
+	return scene.meshes[object.mesh_index];
+}
+
 void DrawShadowmaps(
 	const Visibility& vis,
 	CommandList cmd
@@ -6800,7 +6817,7 @@ void DrawShadowmaps(
 								camera_mask |= 1 << cascade;
 								if (shadow_lod_override)
 								{
-									const uint8_t candidate_lod = (uint8_t)vis.scene->ComputeObjectLODForView(object, aabb, vis.scene->meshes[object.mesh_index], shcams[cascade].view_projection);
+									const uint8_t candidate_lod = (uint8_t)vis.scene->ComputeObjectLODForView(object, aabb, SafeObjectMesh(*vis.scene, object), shcams[cascade].view_projection);
 									shadow_lod = std::min(shadow_lod, candidate_lod);
 								}
 							}
@@ -6992,7 +7009,7 @@ void DrawShadowmaps(
 						uint8_t shadow_lod = 0xFF;
 						if (shadow_lod_override)
 						{
-							const uint8_t candidate_lod = (uint8_t)vis.scene->ComputeObjectLODForView(object, aabb, vis.scene->meshes[object.mesh_index], shcam.view_projection);
+							const uint8_t candidate_lod = (uint8_t)vis.scene->ComputeObjectLODForView(object, aabb, SafeObjectMesh(*vis.scene, object), shcam.view_projection);
 							shadow_lod = std::min(shadow_lod, candidate_lod);
 						}
 
@@ -7218,7 +7235,7 @@ void DrawShadowmaps(
 								camera_mask |= 1 << camera_index;
 								if (shadow_lod_override)
 								{
-									const uint8_t candidate_lod = (uint8_t)vis.scene->ComputeObjectLODForView(object, aabb, vis.scene->meshes[object.mesh_index], cameras[camera_index].view_projection);
+									const uint8_t candidate_lod = (uint8_t)vis.scene->ComputeObjectLODForView(object, aabb, SafeObjectMesh(*vis.scene, object), cameras[camera_index].view_projection);
 									shadow_lod = std::min(shadow_lod, candidate_lod);
 								}
 							}
@@ -8801,7 +8818,8 @@ void DrawDebugWorld(
 				continue;
 			}
 			const ObjectComponent& object = *scene.objects.GetComponent(x.objectEntity);
-			if (scene.meshes.GetCount() < object.mesh_index)
+			// DMO: was `<`, which let mesh_index == GetCount() through and read one past the end.
+			if (object.mesh_index >= (uint32_t)scene.meshes.GetCount())
 			{
 				continue;
 			}
@@ -9683,7 +9701,7 @@ void RefreshEnvProbes(const Visibility& vis, CommandList cmd)
 							{
 								camera_mask |= 1 << camera_index;
 
-								const uint8_t candidate_lod = (uint8_t)vis.scene->ComputeObjectLODForView(object, aabb, vis.scene->meshes[object.mesh_index], cameras[camera_index].view_projection);
+								const uint8_t candidate_lod = (uint8_t)vis.scene->ComputeObjectLODForView(object, aabb, SafeObjectMesh(*vis.scene, object), cameras[camera_index].view_projection);
 								probe_lod = std::min(probe_lod, candidate_lod);
 							}
 						}
