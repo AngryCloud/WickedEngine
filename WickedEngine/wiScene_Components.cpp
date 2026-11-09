@@ -1442,6 +1442,64 @@ namespace wi::scene
 		{
 			CreateStreamoutRenderData();
 		}
+
+		BuildRayChunks();
+	}
+	void MeshComponent::BuildRayChunks()
+	{
+		ray_chunks.clear();
+		ray_chunks_vertices = vertex_positions.size();
+		ray_chunks_indices = indices.size();
+		// Skinned meshes are queried through their pose, not these positions.
+		if (!vertex_boneindices.empty() || indices.size() / 3 < kRayChunkMinTriangles)
+			return;
+		for (uint32_t subsetIndex = 0; subsetIndex < (uint32_t)subsets.size(); ++subsetIndex)
+		{
+			const MeshSubset& subset = subsets[subsetIndex];
+			const uint32_t triangleCount = subset.indexCount / 3;
+			if (triangleCount == 0)
+				continue;
+			if (size_t(subset.indexOffset) + size_t(triangleCount) * 3 > indices.size())
+			{
+				ray_chunks.clear(); // malformed: the query keeps its plain path
+				return;
+			}
+			for (uint32_t first = 0; first < triangleCount; first += kRayChunkTriangles)
+			{
+				const uint32_t count = std::min(kRayChunkTriangles, triangleCount - first);
+				XMFLOAT3 lo(FLT_MAX, FLT_MAX, FLT_MAX);
+				XMFLOAT3 hi(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+				for (uint32_t i = 0; i < count * 3; ++i)
+				{
+					const uint32_t index = indices[subset.indexOffset + first * 3 + i];
+					if (index >= vertex_positions.size())
+					{
+						ray_chunks.clear();
+						return;
+					}
+					const XMFLOAT3& p = vertex_positions[index];
+					if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
+					{
+						ray_chunks.clear();
+						return;
+					}
+					lo = XMFLOAT3(std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z));
+					hi = XMFLOAT3(std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z));
+				}
+				// Padding keeps a triangle lying on a box face inside the slab test
+				// despite float rounding.
+				const float extent = std::max({ std::abs(lo.x), std::abs(lo.y), std::abs(lo.z),
+					std::abs(hi.x), std::abs(hi.y), std::abs(hi.z) });
+				const float pad = std::max(1e-4f, extent * 1e-5f);
+				RayChunk chunk;
+				chunk.bounds = wi::primitive::AABB(XMFLOAT3(lo.x - pad, lo.y - pad, lo.z - pad),
+					XMFLOAT3(hi.x + pad, hi.y + pad, hi.z + pad));
+				chunk.subsetIndex = subsetIndex;
+				chunk.firstTriangle = first;
+				chunk.triangleCount = count;
+				ray_chunks.push_back(chunk);
+			}
+		}
 	}
 	void MeshComponent::CreateStreamoutRenderData()
 	{

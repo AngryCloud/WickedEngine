@@ -587,6 +587,12 @@ namespace wi::scene
 			uint64_t meshCandidates = 0, deformedMeshes = 0, cachedMeshes = 0;
 			uint64_t triangleTests = 0, skinRequests = 0, skinEvaluations = 0, scratchPeakBytes = 0;
 			uint64_t matrixPreparations = 0, preparedMeshes = 0;
+			// Nearest queries only: boxes on the ray never tested because they
+			// start beyond the nearest hit already found.
+			uint64_t objectsSkipped = 0;
+			// Nearest queries only: rigid-mesh triangle chunks the ray could not
+			// reach before the nearest hit or its range.
+			uint64_t chunksSkipped = 0;
 		};
 		// QueryVertices reuses skinned positions only within one candidate/query.
 		// No retained Scene state or pose invalidation contract. Scratch is capped

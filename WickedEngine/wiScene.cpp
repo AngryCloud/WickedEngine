@@ -6537,6 +6537,40 @@ namespace wi::scene
 
 	namespace
 	{
+		// World-space distance along the ray to where it enters the box, the
+		// same slab test as AABB::intersects. Inside the box, or on any NaN from
+		// an axis-parallel ray lying on a slab plane, it returns 0: smaller is
+		// always safe for front-to-back pruning, it only prunes less.
+		float RayEntryDistance(const Ray& ray, const AABB& aabb, float directionLength)
+		{
+			if (aabb.intersects(ray.origin))
+				return 0;
+			const XMFLOAT3 lo = aabb.getMin();
+			const XMFLOAT3 hi = aabb.getMax();
+			const float origin[3] = { ray.origin.x, ray.origin.y, ray.origin.z };
+			const float inverse[3] = { ray.direction_inverse.x, ray.direction_inverse.y, ray.direction_inverse.z };
+			const float low[3] = { lo.x, lo.y, lo.z };
+			const float high[3] = { hi.x, hi.y, hi.z };
+			float entry = 0;
+			for (int axis = 0; axis < 3; ++axis)
+			{
+				const float t1 = (low[axis] - origin[axis]) * inverse[axis];
+				const float t2 = (high[axis] - origin[axis]) * inverse[axis];
+				const float nearest = std::min(t1, t2);
+				if (nearest == nearest && nearest > entry)
+					entry = nearest;
+			}
+			const float distance = entry * directionLength;
+			return std::isfinite(distance) && distance > 0 ? distance : 0;
+		}
+		// A candidate whose box starts beyond this cannot hold a nearer hit.
+		// The margin absorbs float differences between the slab entry and the
+		// triangle's world distance, so a skipped box never held the winner.
+		float RayPruneLimit(float nearestDistance)
+		{
+			return nearestDistance + std::max(1e-4f, nearestDistance * 1e-5f);
+		}
+
 		struct RaySkinningScratch
 		{
 			wi::vector<XMFLOAT4> positions;
@@ -6622,6 +6656,12 @@ namespace wi::scene
 		RayIntersectionResult result;
 		if (stats) *stats = {};
 		RaySkinningScratch skinScratch;
+		// Which source holds the current nearest hit, for ties: colliders (-1)
+		// were always tested first, then objects in index order. Objects are now
+		// tested front to back, so an equal-distance hit replaces the current one
+		// only if the old order would have reached it first.
+		constexpr int64_t kNoHitRank = INT64_MAX;
+		int64_t resultRank = kNoHitRank;
 
 		const XMVECTOR rayOrigin = XMLoadFloat3(&ray.origin);
 		const XMVECTOR rayDirection = XMVector3Normalize(XMLoadFloat3(&ray.direction));
@@ -6670,6 +6710,7 @@ namespace wi::scene
 						result.vertexID0 = 0;
 						result.vertexID1 = 0;
 						result.vertexID2 = 0;
+						resultRank = -1;
 					}
 				}
 			});
@@ -6677,6 +6718,18 @@ namespace wi::scene
 
 		if (filterMask & FILTER_OBJECT_ALL)
 		{
+			// DMO (WICKED-ZONE-OPT-MAC-AUDIT-2026-11-09 N5): test boxes front to
+			// back and stop at the first that starts beyond the nearest hit. The
+			// old index-order loop skinned and tested every box on the ray, e.g.
+			// distant backdrop meshes behind a near wall. The answer is unchanged:
+			// the same candidates pass the same tests, and ties keep the old order.
+			struct Candidate
+			{
+				float entry;
+				uint32_t objectIndex;
+			};
+			wi::vector<Candidate> candidates;
+			const float directionLength = XMVectorGetX(XMVector3Length(XMLoadFloat3(&ray.direction)));
 			const size_t objectCount = std::min(objects.GetCount(), aabb_objects.size());
 			for (size_t objectIndex = 0; objectIndex < objectCount; ++objectIndex)
 			{
@@ -6685,6 +6738,20 @@ namespace wi::scene
 					continue;
 				if (!ray.intersects(aabb))
 					continue;
+				candidates.push_back({ RayEntryDistance(ray, aabb, directionLength), (uint32_t)objectIndex });
+			}
+			std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
+				return a.entry < b.entry || (a.entry == b.entry && a.objectIndex < b.objectIndex);
+			});
+
+			for (size_t candidateIndex = 0; candidateIndex < candidates.size(); ++candidateIndex)
+			{
+				if (candidates[candidateIndex].entry > RayPruneLimit(result.distance))
+				{
+					if (stats) stats->objectsSkipped += candidates.size() - candidateIndex;
+					break;
+				}
+				const size_t objectIndex = candidates[candidateIndex].objectIndex;
 
 				if (acceptEntity && !acceptEntity(objects.GetEntity(objectIndex))) continue;
 				const ObjectComponent& object = objects[objectIndex];
@@ -6707,6 +6774,7 @@ namespace wi::scene
 				const ArmatureComponent* armature = mesh->IsSkinned() ? armatures.GetComponent(mesh->armatureID) : nullptr;
 				skinScratch.Begin(*mesh, softbody && !softbody->boneData.empty() ? &softbody->boneData :
 					armature && !armature->boneData.empty() ? &armature->boneData : nullptr, skinning, stats);
+				const int64_t rank = (int64_t)objectIndex;
 
 				auto intersect_triangle = [&](uint32_t subsetIndex, uint32_t indexOffset, uint32_t triangleIndex)
 				{
@@ -6728,7 +6796,8 @@ namespace wi::scene
 						distance = wi::math::Distance(pos, rayOrigin);
 
 						// Note: we do the TMin, Tmax check here, in world space! We use the RayTriangleIntersects in local space, so we don't use those in there
-						if (distance < result.distance && distance >= ray.TMin && distance <= ray.TMax)
+						const bool nearer = distance < result.distance || (distance == result.distance && rank < resultRank);
+						if (nearer && distance >= ray.TMin && distance <= ray.TMax)
 						{
 							XMVECTOR nor;
 							if (softbody != nullptr || mesh->vertex_normals.empty()) // Note: for soft body we compute it instead of loading the simulated normals
@@ -6784,6 +6853,7 @@ namespace wi::scene
 							result.vertexID1 = (int)i1;
 							result.vertexID2 = (int)i2;
 							result.bary = bary;
+							resultRank = rank;
 						}
 					}
 				};
@@ -6802,6 +6872,46 @@ namespace wi::scene
 						const uint32_t indexOffset = subset.indexOffset;
 						intersect_triangle(subsetIndex, indexOffset, triangleIndex);
 					});
+				}
+				else if (skinScratch.bones == nullptr && mesh->HasCurrentRayChunks())
+				{
+					// DMO (WICKED-ZONE-OPT-MAC-AUDIT-2026-11-09 N5): the same
+					// subsets and triangles in the same order as the plain loop
+					// below, skipping only chunks the ray cannot reach: missed by
+					// the ray, beyond its range, or starting beyond the nearest hit.
+					// The query reads these rigid positions undeformed, so the
+					// chunk boxes bound exactly what it tests.
+					uint32_t first_subset = 0;
+					uint32_t last_subset = 0;
+					mesh->GetLODSubsetRange(lod, first_subset, last_subset);
+					const Ray ray_local = Ray(rayOrigin_local, rayDirection_local);
+					// World distance per unit of local ray parameter (exact for the
+					// object's linear transform; the local direction is normalized).
+					const float worldPerLocal = XMVectorGetX(XMVector3Length(XMVector3TransformNormal(rayDirection_local, objectMat)));
+					for (const MeshComponent::RayChunk& chunk : mesh->ray_chunks)
+					{
+						if (chunk.subsetIndex < first_subset || chunk.subsetIndex >= last_subset)
+							continue;
+						const MeshComponent::MeshSubset& subset = mesh->subsets[chunk.subsetIndex];
+						if (subset.indexCount == 0)
+							continue;
+						if (!ray_local.intersects(chunk.bounds))
+						{
+							if (stats) stats->chunksSkipped++;
+							continue;
+						}
+						const float entry = RayEntryDistance(ray_local, chunk.bounds, 1.0f) * worldPerLocal;
+						if (entry > RayPruneLimit(result.distance) || entry > RayPruneLimit(ray.TMax))
+						{
+							if (stats) stats->chunksSkipped++;
+							continue;
+						}
+						const uint32_t end = chunk.firstTriangle + chunk.triangleCount;
+						for (uint32_t triangleIndex = chunk.firstTriangle; triangleIndex < end; ++triangleIndex)
+						{
+							intersect_triangle(chunk.subsetIndex, subset.indexOffset, triangleIndex);
+						}
+					}
 				}
 				else
 				{

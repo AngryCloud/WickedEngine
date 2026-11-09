@@ -772,6 +772,32 @@ namespace wi::scene
 		wi::vector<wi::primitive::AABB> bvh_leaf_aabbs;
 		wi::BVH bvh;
 
+		// DMO (WICKED-ZONE-OPT-MAC-AUDIT-2026-11-09 N5): coarse CPU ray-query
+		// bounds for large rigid meshes, about 0.1 byte per triangle against a
+		// BVH's ~130. One local-space box per run of up to kRayChunkTriangles
+		// consecutive triangles of a subset, in index order. Derived from
+		// vertex_positions/indices by CreateRenderData (which every geometry
+		// change already calls) and never serialized. The nearest ray query uses
+		// them only for meshes it reads undeformed, and only while the recorded
+		// counts still match the geometry.
+		struct RayChunk
+		{
+			wi::primitive::AABB bounds;
+			uint32_t subsetIndex = 0;
+			uint32_t firstTriangle = 0;
+			uint32_t triangleCount = 0;
+		};
+		static constexpr uint32_t kRayChunkTriangles = 128;
+		static constexpr uint32_t kRayChunkMinTriangles = 4096;
+		wi::vector<RayChunk> ray_chunks;
+		size_t ray_chunks_vertices = 0;
+		size_t ray_chunks_indices = 0;
+		void BuildRayChunks();
+		bool HasCurrentRayChunks() const
+		{
+			return !ray_chunks.empty() && ray_chunks_vertices == vertex_positions.size() && ray_chunks_indices == indices.size();
+		}
+
 		struct SubsetClusterRange
 		{
 			uint32_t clusterOffset = 0;
