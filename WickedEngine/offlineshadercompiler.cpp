@@ -375,6 +375,7 @@ wi::vector<Target> targets;
 wi::unordered_map<std::string, wi::shadercompiler::CompilerOutput> results;
 bool rebuild = false;
 bool shaderdump_enabled = false;
+wi::unordered_map<std::string, wi::vector<std::pair<std::string, std::string>>> target_identities; // per target directory
 
 using namespace wi::graphics;
 
@@ -632,6 +633,7 @@ int main(int argc, char* argv[])
 	{
 		std::string SHADERPATH = target.dir;
 		wi::helper::DirectoryCreate(SHADERPATH);
+		auto& identities = target_identities[SHADERPATH];
 
 		for (auto& shader : shaders)
 		{
@@ -650,7 +652,7 @@ int main(int argc, char* argv[])
 
 			for (auto& permutation : shader.permutations)
 			{
-				wi::jobsystem::Execute(ctx, [&target, &permutation, &shader, &out, SHADERPATH, compile_flags, minshadermodel_override](wi::jobsystem::JobArgs args) {
+				wi::jobsystem::Execute(ctx, [&target, &permutation, &shader, &out, &identities, SHADERPATH, compile_flags, minshadermodel_override](wi::jobsystem::JobArgs args) {
 
 					std::string shaderbinaryfilename = SHADERPATH + shader.name;
 					for (auto& def : permutation.defines)
@@ -661,10 +663,29 @@ int main(int argc, char* argv[])
 
 					wi::shadercompiler::CompilerOutput output;
 
-					if (!wi::shadercompiler::IsShaderOutdated(shaderbinaryfilename))
+					wi::shadercompiler::CompilerInput input;
+					input.entrypoint = shader.entrypoint;
+					input.flags = compile_flags;
+					input.format = target.format;
+					input.stage = shader.stage;
+					input.shadersourcefilename = SHADERSOURCEPATH + shader.name + ".hlsl";
+					input.include_directories.push_back(SHADERSOURCEPATH);
+					input.include_directories.push_back(SHADERSOURCEPATH + wi::helper::GetDirectoryFromPath(shader.name));
+					input.minshadermodel = std::max(shader.minshadermodel, minshadermodel_override);
+					input.defines = permutation.defines;
+
+					// The published identity of this binary (DMO WICKED-SHADER-08): recorded beside it and in
+					// the per-format manifest that a shader patch ships.
+					const std::string identity = wi::shadercompiler::ComputeShaderIdentity(input);
+					const std::string binaryname = shaderbinaryfilename.substr(SHADERPATH.size());
+
+					if (!wi::shadercompiler::IsShaderOutdated(shaderbinaryfilename, identity))
 					{
 						if (!rebuild)
 						{
+							locker.lock();
+							identities.emplace_back(binaryname, identity);
+							locker.unlock();
 							if (shaderdump_enabled)
 							{
 								auto vec = wi::allocator::make_shared<std::vector<uint8_t>>();
@@ -690,17 +711,6 @@ int main(int argc, char* argv[])
 						}
 					}
 
-					wi::shadercompiler::CompilerInput input;
-					input.entrypoint = shader.entrypoint;
-					input.flags = compile_flags;
-					input.format = target.format;
-					input.stage = shader.stage;
-					input.shadersourcefilename = SHADERSOURCEPATH + shader.name + ".hlsl";
-					input.include_directories.push_back(SHADERSOURCEPATH);
-					input.include_directories.push_back(SHADERSOURCEPATH + wi::helper::GetDirectoryFromPath(shader.name));
-					input.minshadermodel = std::max(shader.minshadermodel, minshadermodel_override);
-					input.defines = permutation.defines;
-
 					if (input.minshadermodel > ShaderModel::SM_5_0 && target.format == ShaderFormat::HLSL5)
 					{
 						// if shader format cannot support shader model, then we cancel the task without returning error
@@ -722,8 +732,10 @@ int main(int argc, char* argv[])
 					if (output.IsValid())
 					{
 						wi::shadercompiler::SaveShaderAndMetadata(shaderbinaryfilename, output);
+						wi::shadercompiler::WriteShaderIdentity(shaderbinaryfilename, identity);
 
 						locker.lock();
+						identities.emplace_back(binaryname, identity);
 						if (!output.error_message.empty())
 						{
 							std::cerr << output.error_message << "\n";
@@ -748,6 +760,16 @@ int main(int argc, char* argv[])
 		}
 	}
 	wi::jobsystem::Wait(ctx);
+
+	// One identity manifest per target format, as a shader patch publishes it.
+	for (auto& [directory, identities] : target_identities)
+	{
+		const std::string manifest = directory + "shader-identity.manifest";
+		if (wi::shadercompiler::WriteShaderIdentityManifest(manifest, identities))
+		{
+			*out << "[Wicked Engine Offline Shader Compiler] Identity manifest: " << manifest << " (" << identities.size() << " shaders)\n";
+		}
+	}
 
 	*out << "[Wicked Engine Offline Shader Compiler] Finished in " << std::setprecision(4) << timer.elapsed_seconds() << " seconds with " << errors << " errors\n";
 

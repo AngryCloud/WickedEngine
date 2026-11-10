@@ -4,8 +4,15 @@
 #include "wiHelper.h"
 #include "wiArchive.h"
 #include "wiUnorderedSet.h"
+#include "wiUnorderedMap.h"
 
 #include <mutex>
+#include <algorithm>
+#include <array>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 
 #ifdef PLATFORM_WINDOWS_DESKTOP
 #define SHADERCOMPILER_ENABLED
@@ -57,6 +64,7 @@ namespace wi::shadercompiler
 	struct InternalState_DXC
 	{
 		DxcCreateInstanceProc DxcCreateInstance = nullptr;
+		std::string version = "unavailable";
 
 		InternalState_DXC(const std::string& modifier = "")
 		{
@@ -88,6 +96,17 @@ namespace wi::shadercompiler
 					uint32_t major = 0;
 					hr = info->GetVersion(&major, &minor);
 					assert(SUCCEEDED(hr));
+					version = "dxc " + std::to_string(major) + "." + std::to_string(minor);
+					ComPtr<IDxcVersionInfo2> info2;
+					if (SUCCEEDED(dxcCompiler->QueryInterface(IID_PPV_ARGS(&info2))))
+					{
+						uint32_t commitCount = 0;
+						char* commitHash = nullptr;
+						if (SUCCEEDED(info2->GetCommitInfo(&commitCount, &commitHash)) && commitHash != nullptr)
+						{
+							version += " commit " + std::to_string(commitCount) + " " + commitHash;
+						}
+					}
 					wi::backlog::post("wi::shadercompiler: loaded " + library + " (version: " + std::to_string(major) + "." + std::to_string(minor) + ")");
 				}
 			}
@@ -1123,6 +1142,372 @@ namespace wi::shadercompiler
 #endif // SHADERCOMPILER_ENABLED
 
 		return false;
+	}
+
+	namespace identity_detail
+	{
+		// SHA-256 (FIPS 180-4): published identities must hash identically on every platform.
+		class Sha256
+		{
+		public:
+			void Update(const void* data, size_t size)
+			{
+				const uint8_t* bytes = (const uint8_t*)data;
+				bits += uint64_t(size) * 8;
+				while (size > 0)
+				{
+					const size_t take = std::min(size, size_t(64) - used);
+					std::memcpy(buffer + used, bytes, take);
+					used += take;
+					bytes += take;
+					size -= take;
+					if (used == 64)
+					{
+						Block(buffer);
+						used = 0;
+					}
+				}
+			}
+			std::string FinishHex()
+			{
+				const uint64_t length = bits;
+				const uint8_t pad = 0x80;
+				Update(&pad, 1);
+				const uint8_t zero = 0;
+				while (used != 56)
+				{
+					Update(&zero, 1);
+				}
+				uint8_t tail[8];
+				for (int i = 0; i < 8; ++i)
+				{
+					tail[i] = uint8_t(length >> (56 - 8 * i));
+				}
+				Update(tail, 8);
+				static const char* digits = "0123456789abcdef";
+				std::string hex;
+				for (uint32_t word : h)
+				{
+					for (int shift = 28; shift >= 0; shift -= 4)
+					{
+						hex += digits[(word >> shift) & 0xF];
+					}
+				}
+				return hex;
+			}
+		private:
+			static uint32_t Rotr(uint32_t x, int n) { return (x >> n) | (x << (32 - n)); }
+			void Block(const uint8_t* p)
+			{
+				static const uint32_t k[64] = {
+					0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+					0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+					0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+					0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+					0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+					0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+					0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+					0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+				};
+				uint32_t w[64];
+				for (int i = 0; i < 16; ++i)
+				{
+					w[i] = (uint32_t(p[i * 4]) << 24) | (uint32_t(p[i * 4 + 1]) << 16) | (uint32_t(p[i * 4 + 2]) << 8) | uint32_t(p[i * 4 + 3]);
+				}
+				for (int i = 16; i < 64; ++i)
+				{
+					const uint32_t s0 = Rotr(w[i - 15], 7) ^ Rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
+					const uint32_t s1 = Rotr(w[i - 2], 17) ^ Rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+					w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+				}
+				uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+				for (int i = 0; i < 64; ++i)
+				{
+					const uint32_t S1 = Rotr(e, 6) ^ Rotr(e, 11) ^ Rotr(e, 25);
+					const uint32_t ch = (e & f) ^ (~e & g);
+					const uint32_t t1 = hh + S1 + ch + k[i] + w[i];
+					const uint32_t S0 = Rotr(a, 2) ^ Rotr(a, 13) ^ Rotr(a, 22);
+					const uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
+					const uint32_t t2 = S0 + maj;
+					hh = g; g = f; f = e; e = d + t1; d = c; c = b; b = a; a = t1 + t2;
+				}
+				h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+			}
+			uint32_t h[8] = { 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19 };
+			uint8_t buffer[64] = {};
+			size_t used = 0;
+			uint64_t bits = 0;
+		};
+
+		struct FileFacts
+		{
+			std::uintmax_t size = 0;
+			std::filesystem::file_time_type stamp;
+			std::string digest;
+			wi::vector<std::string> includes; // names as written, in order
+		};
+		std::mutex facts_locker;
+		wi::unordered_map<std::string, FileFacts> facts;
+
+		// Digest and #include names of a file, recomputed only when its size or write time changes.
+		bool Facts(const std::filesystem::path& path, FileFacts& out)
+		{
+			std::error_code error;
+			const auto size = std::filesystem::file_size(path, error);
+			if (error)
+				return false;
+			const auto stamp = std::filesystem::last_write_time(path, error);
+			if (error)
+				return false;
+			const std::string key = path.generic_string();
+			{
+				std::scoped_lock lock(facts_locker);
+				auto found = facts.find(key);
+				if (found != facts.end() && found->second.size == size && found->second.stamp == stamp)
+				{
+					out = found->second;
+					return true;
+				}
+			}
+			std::ifstream stream(path, std::ios::binary);
+			if (!stream)
+				return false;
+			std::string content((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+			FileFacts result;
+			result.size = size;
+			result.stamp = stamp;
+			Sha256 sha;
+			sha.Update(content.data(), content.size());
+			result.digest = sha.FinishHex();
+			std::istringstream lines(content);
+			std::string line;
+			while (std::getline(lines, line))
+			{
+				size_t i = line.find_first_not_of(" \t");
+				if (i == std::string::npos || line[i] != '#')
+					continue;
+				i = line.find_first_not_of(" \t", i + 1);
+				if (i == std::string::npos || line.compare(i, 7, "include") != 0)
+					continue;
+				const size_t open = line.find_first_of("\"<", i + 7);
+				if (open == std::string::npos)
+					continue;
+				const size_t close = line.find(line[open] == '"' ? '"' : '>', open + 1);
+				if (close == std::string::npos)
+					continue;
+				result.includes.push_back(line.substr(open + 1, close - open - 1));
+			}
+			{
+				std::scoped_lock lock(facts_locker);
+				facts[key] = result;
+			}
+			out = std::move(result);
+			return true;
+		}
+
+		std::string CompilerVersion(wi::graphics::ShaderFormat format)
+		{
+			switch (format)
+			{
+#ifdef SHADERCOMPILER_ENABLED_DXCOMPILER
+			case ShaderFormat::HLSL6:
+			case ShaderFormat::SPIRV:
+				return dxc_compiler().version;
+			case ShaderFormat::METAL:
+				return dxc_compiler().version + " + metal shader converter";
+#endif // SHADERCOMPILER_ENABLED_DXCOMPILER
+			default:
+				return "format " + std::to_string((int)format);
+			}
+		}
+
+		// The shader model the compiler actually targets (mirrors Compile_DXCompiler): requests that
+		// compile to the same profile must not produce different identities.
+		ShaderModel EffectiveModel(const CompilerInput& input)
+		{
+			switch (input.format)
+			{
+			case ShaderFormat::HLSL6_XS:
+				return ShaderModel::SM_6_2;
+			case ShaderFormat::METAL:
+				return std::max(input.minshadermodel, ShaderModel::SM_6_6);
+			case ShaderFormat::HLSL6:
+			case ShaderFormat::SPIRV:
+				return std::max(input.minshadermodel, ShaderModel::SM_6_0);
+			default:
+				return input.minshadermodel;
+			}
+		}
+
+		wi::unordered_map<std::string, std::string> manifest;
+		std::mutex manifest_locker;
+
+		std::string Trim(const std::string& text)
+		{
+			const size_t first = text.find_first_not_of(" \t\r\n");
+			if (first == std::string::npos)
+				return {};
+			const size_t last = text.find_last_not_of(" \t\r\n");
+			return text.substr(first, last - first + 1);
+		}
+	}
+
+	std::string ComputeShaderIdentity(const CompilerInput& input)
+	{
+		namespace fs = std::filesystem;
+		using namespace identity_detail;
+		std::error_code error;
+		const fs::path source = fs::weakly_canonical(fs::path(input.shadersourcefilename), error);
+		const fs::path root = fs::weakly_canonical(input.include_directories.empty() ? source.parent_path() : fs::path(input.include_directories.front()), error);
+
+		std::string text = "dmo-shader-identity v1\n";
+		text += "format " + std::to_string((int)input.format) + "\n";
+		text += "stage " + std::to_string((int)input.stage) + "\n";
+		text += "entry " + input.entrypoint + "\n";
+		text += "model " + std::to_string((int)EffectiveModel(input)) + "\n";
+		text += "flags " + std::to_string((int)input.flags) + "\n";
+		text += "compiler " + CompilerVersion(input.format) + "\n";
+		wi::vector<std::string> defines = input.defines;
+		std::sort(defines.begin(), defines.end());
+		for (const auto& define : defines)
+		{
+			text += "define " + define + "\n";
+		}
+
+		// Depth-first include closure in include order; each file once.
+		wi::unordered_set<std::string> visited;
+		auto visit = [&](auto&& self, const fs::path& file) -> void {
+			const std::string key = file.generic_string();
+			if (!visited.insert(key).second)
+				return;
+			FileFacts fileFacts;
+			const std::string relative = file.lexically_relative(root).generic_string();
+			if (!Facts(file, fileFacts))
+			{
+				text += "missing " + relative + "\n";
+				return;
+			}
+			text += "file " + relative + " " + fileFacts.digest + "\n";
+			for (const auto& name : fileFacts.includes)
+			{
+				fs::path resolved;
+				const fs::path candidate = file.parent_path() / name;
+				if (fs::exists(candidate, error))
+				{
+					resolved = candidate;
+				}
+				else
+				{
+					for (const auto& directory : input.include_directories)
+					{
+						const fs::path option = fs::path(directory) / name;
+						if (fs::exists(option, error))
+						{
+							resolved = option;
+							break;
+						}
+					}
+				}
+				if (resolved.empty())
+				{
+					text += "unresolved " + name + "\n";
+					continue;
+				}
+				self(self, fs::weakly_canonical(resolved, error));
+			}
+		};
+		visit(visit, source);
+
+		Sha256 sha;
+		sha.Update(text.data(), text.size());
+		return sha.FinishHex();
+	}
+
+	std::string Sha256Hex(const void* data, size_t size)
+	{
+		identity_detail::Sha256 sha;
+		sha.Update(data, size);
+		return sha.FinishHex();
+	}
+
+	std::string ReadShaderIdentity(const std::string& shaderfilename)
+	{
+		std::ifstream stream(wi::helper::ReplaceExtension(shaderfilename, "wishaderid"));
+		if (!stream)
+			return {};
+		std::string identity;
+		std::getline(stream, identity);
+		return identity_detail::Trim(identity);
+	}
+
+	bool WriteShaderIdentity(const std::string& shaderfilename, const std::string& identity)
+	{
+		const std::string path = wi::helper::ReplaceExtension(shaderfilename, "wishaderid");
+		const std::string text = identity + "\n";
+		return wi::helper::FileWrite(path, (const uint8_t*)text.data(), text.size());
+	}
+
+	bool LoadShaderIdentityManifest(const std::string& manifestfilename)
+	{
+		std::ifstream stream(manifestfilename);
+		if (!stream)
+			return false;
+		std::string line;
+		if (!std::getline(stream, line) || identity_detail::Trim(line).rfind("dmo.shader-identity-manifest.v1", 0) != 0)
+			return false;
+		wi::unordered_map<std::string, std::string> entries;
+		while (std::getline(stream, line))
+		{
+			line = identity_detail::Trim(line);
+			if (line.empty())
+				continue;
+			const size_t space = line.find_last_of(' ');
+			if (space == std::string::npos || space == 0)
+				return false;
+			const std::string identity = line.substr(space + 1);
+			if (identity.size() != 64 || identity.find_first_not_of("0123456789abcdef") != std::string::npos)
+				return false;
+			entries[identity_detail::Trim(line.substr(0, space))] = identity;
+		}
+		std::scoped_lock lock(identity_detail::manifest_locker);
+		identity_detail::manifest = std::move(entries);
+		return true;
+	}
+
+	bool WriteShaderIdentityManifest(const std::string& manifestfilename, const wi::vector<std::pair<std::string, std::string>>& entries)
+	{
+		wi::vector<std::pair<std::string, std::string>> sorted = entries;
+		std::sort(sorted.begin(), sorted.end());
+		std::string text = "dmo.shader-identity-manifest.v1\n";
+		for (const auto& [binary, identity] : sorted)
+		{
+			text += binary + " " + identity + "\n";
+		}
+		return wi::helper::FileWrite(manifestfilename, (const uint8_t*)text.data(), text.size());
+	}
+
+	void ClearShaderIdentityManifest()
+	{
+		std::scoped_lock lock(identity_detail::manifest_locker);
+		identity_detail::manifest.clear();
+	}
+
+	std::string ExpectedShaderIdentity(const std::string& shaderbinaryname)
+	{
+		std::scoped_lock lock(identity_detail::manifest_locker);
+		auto found = identity_detail::manifest.find(shaderbinaryname);
+		return found == identity_detail::manifest.end() ? std::string() : found->second;
+	}
+
+	bool IsShaderOutdated(const std::string& shaderfilename, const std::string& expectedidentity)
+	{
+		if (expectedidentity.empty())
+			return IsShaderOutdated(shaderfilename);
+		std::string filepath = shaderfilename;
+		wi::helper::MakePathAbsolute(filepath);
+		if (!wi::helper::FileExists(filepath))
+			return true;
+		return ReadShaderIdentity(filepath) != expectedidentity;
 	}
 
 	std::mutex locker;

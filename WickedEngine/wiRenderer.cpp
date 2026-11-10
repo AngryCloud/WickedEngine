@@ -785,27 +785,41 @@ bool LoadShader(
 
 	wi::shadercompiler::RegisterShader(shaderbinaryfilename);
 
-	if (wi::shadercompiler::IsShaderOutdated(shaderbinaryfilename))
+	wi::shadercompiler::CompilerInput input;
+	input.entrypoint = entrypoint;
+	input.format = device->GetShaderFormat();
+	input.stage = stage;
+	input.minshadermodel = minshadermodel;
+	input.defines = permutation_defines;
+
+	std::string sourcedir = SHADERSOURCEPATH;
+	wi::helper::MakePathAbsolute(sourcedir);
+	input.include_directories.push_back(sourcedir);
+	input.include_directories.push_back(sourcedir + wi::helper::GetDirectoryFromPath(filename));
+	input.shadersourcefilename = wi::helper::ReplaceExtension(sourcedir + filename, "hlsl");
+
+	// Content identity (DMO WICKED-SHADER-08): an installed shader patch manifest names what each
+	// binary must be; without one, a source tree defines it. A binary whose recorded identity differs
+	// is rebuilt the same way as a missing one. With neither, the timestamp check applies.
+	const std::string binaryname = shaderbinaryfilename.compare(0, SHADERPATH.size(), SHADERPATH) == 0 ? shaderbinaryfilename.substr(SHADERPATH.size()) : shaderbinaryfilename;
+	std::string expectedidentity = wi::shadercompiler::ExpectedShaderIdentity(binaryname);
+	if (expectedidentity.empty() && wi::helper::FileExists(input.shadersourcefilename))
 	{
-		wi::shadercompiler::CompilerInput input;
-		input.entrypoint = entrypoint;
-		input.format = device->GetShaderFormat();
-		input.stage = stage;
-		input.minshadermodel = minshadermodel;
-		input.defines = permutation_defines;
+		expectedidentity = wi::shadercompiler::ComputeShaderIdentity(input);
+	}
 
-		std::string sourcedir = SHADERSOURCEPATH;
-		wi::helper::MakePathAbsolute(sourcedir);
-		input.include_directories.push_back(sourcedir);
-		input.include_directories.push_back(sourcedir + wi::helper::GetDirectoryFromPath(filename));
-		input.shadersourcefilename = wi::helper::ReplaceExtension(sourcedir + filename, "hlsl");
-
+	if (wi::shadercompiler::IsShaderOutdated(shaderbinaryfilename, expectedidentity))
+	{
 		wi::shadercompiler::CompilerOutput output;
 		wi::shadercompiler::Compile(input, output);
 
 		if (output.IsValid())
 		{
 			wi::shadercompiler::SaveShaderAndMetadata(shaderbinaryfilename, output);
+			if (!expectedidentity.empty())
+			{
+				wi::shadercompiler::WriteShaderIdentity(shaderbinaryfilename, expectedidentity);
+			}
 
 			if (!output.error_message.empty())
 			{

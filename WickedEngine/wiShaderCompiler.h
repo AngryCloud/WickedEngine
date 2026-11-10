@@ -44,6 +44,29 @@ namespace wi::shadercompiler
 	bool SaveShaderAndMetadata(const std::string& shaderfilename, const CompilerOutput& output);
 	bool IsShaderOutdated(const std::string& shaderfilename);
 
+	// Content identity of a compiled shader: a stable SHA-256 (hex) over everything that determines
+	// it: target format, stage, entry point, minimum shader model, flags, sorted defines, compiler
+	// version, and every file of the source's #include closure (by source-root-relative path and
+	// content). The include closure is found by scanning #include lines, a superset of the real
+	// dependencies, so an edit is never missed. File digests and include lists are cached per
+	// process while a file's size and write time are unchanged.
+	std::string ComputeShaderIdentity(const CompilerInput& input);
+	// SHA-256 of a byte range as lowercase hex: the identity hash primitive.
+	std::string Sha256Hex(const void* data, size_t size);
+	// The identity recorded beside a binary (<binary>.wishaderid), or empty.
+	std::string ReadShaderIdentity(const std::string& shaderfilename);
+	bool WriteShaderIdentity(const std::string& shaderfilename, const std::string& identity);
+	// A published identity manifest ("dmo.shader-identity-manifest.v1" header, then one
+	// "<binary relative to the shader directory> <identity>" line per shader), as a shader patch
+	// installs it. Loading replaces the current manifest.
+	bool LoadShaderIdentityManifest(const std::string& manifestfilename);
+	bool WriteShaderIdentityManifest(const std::string& manifestfilename, const wi::vector<std::pair<std::string, std::string>>& entries);
+	void ClearShaderIdentityManifest();
+	std::string ExpectedShaderIdentity(const std::string& shaderbinaryname); // empty when not listed
+	// Outdated when the binary is missing or its recorded identity differs from the expected one.
+	// An empty expected identity keeps the timestamp check above.
+	bool IsShaderOutdated(const std::string& shaderfilename, const std::string& expectedidentity);
+
 	void RegisterShader(const std::string& shaderfilename);
 	size_t GetRegisteredShaderCount();
 	bool CheckRegisteredShadersOutdated();
