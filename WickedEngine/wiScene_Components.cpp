@@ -1448,11 +1448,40 @@ namespace wi::scene
 	void MeshComponent::BuildRayChunks()
 	{
 		ray_chunks.clear();
+		ray_chunk_triangles.clear();
+		ray_chunk_bones.clear();
+		ray_chunks_bone_limit = 0;
 		ray_chunks_vertices = vertex_positions.size();
 		ray_chunks_indices = indices.size();
-		// Skinned meshes are queried through their pose, not these positions.
-		if (!vertex_boneindices.empty() || indices.size() / 3 < kRayChunkMinTriangles)
+		if (indices.size() / 3 < kRayChunkMinTriangles)
 			return;
+		const auto fail = [this]() { ray_chunks.clear(); ray_chunk_triangles.clear(); ray_chunk_bones.clear(); ray_chunks_bone_limit = 0; }; // the query keeps its plain path
+		const uint32_t influenceSets = GetBoneInfluenceDiv4();
+		const bool skinned = influenceSets > 0;
+		if (skinned)
+		{
+			if (vertex_boneweights.size() != vertex_positions.size() || vertex_boneindices.size() != vertex_positions.size() ||
+				(influenceSets > 1 && (vertex_boneindices2.size() != vertex_positions.size() || vertex_boneweights2.size() != vertex_positions.size())))
+				return fail();
+			for (size_t v = 0; v < vertex_positions.size(); ++v)
+			{
+				for (uint32_t set = 0; set < influenceSets; ++set)
+				{
+					const XMFLOAT4& w = set == 0 ? vertex_boneweights[v] : vertex_boneweights2[v];
+					for (const float weight : { w.x, w.y, w.z, w.w })
+						if (!(weight >= 0) || !std::isfinite(weight))
+							return fail();
+				}
+			}
+		}
+		wi::vector<uint32_t> chunkBones;
+		struct Entry
+		{
+			XMFLOAT3 centroid;
+			uint32_t triangle;
+		};
+		wi::vector<Entry> entries;
+		ray_chunk_triangles.reserve(indices.size() / 3);
 		for (uint32_t subsetIndex = 0; subsetIndex < (uint32_t)subsets.size(); ++subsetIndex)
 		{
 			const MeshSubset& subset = subsets[subsetIndex];
@@ -1460,44 +1489,119 @@ namespace wi::scene
 			if (triangleCount == 0)
 				continue;
 			if (size_t(subset.indexOffset) + size_t(triangleCount) * 3 > indices.size())
+				return fail(); // malformed
+			entries.clear();
+			entries.reserve(triangleCount);
+			for (uint32_t triangle = 0; triangle < triangleCount; ++triangle)
 			{
-				ray_chunks.clear(); // malformed: the query keeps its plain path
-				return;
-			}
-			for (uint32_t first = 0; first < triangleCount; first += kRayChunkTriangles)
-			{
-				const uint32_t count = std::min(kRayChunkTriangles, triangleCount - first);
-				XMFLOAT3 lo(FLT_MAX, FLT_MAX, FLT_MAX);
-				XMFLOAT3 hi(-FLT_MAX, -FLT_MAX, -FLT_MAX);
-				for (uint32_t i = 0; i < count * 3; ++i)
+				XMFLOAT3 sum(0, 0, 0);
+				for (uint32_t corner = 0; corner < 3; ++corner)
 				{
-					const uint32_t index = indices[subset.indexOffset + first * 3 + i];
+					const uint32_t index = indices[subset.indexOffset + triangle * 3 + corner];
 					if (index >= vertex_positions.size())
-					{
-						ray_chunks.clear();
-						return;
-					}
+						return fail();
 					const XMFLOAT3& p = vertex_positions[index];
 					if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
+						return fail();
+					sum = XMFLOAT3(sum.x + p.x, sum.y + p.y, sum.z + p.z);
+				}
+				entries.push_back({ XMFLOAT3(sum.x / 3, sum.y / 3, sum.z / 3), triangle });
+			}
+			// Median splits on the longest centroid axis until a range fits one
+			// chunk, as BVH leaves are built: chunks stay compact whatever order
+			// the mesh lists its triangles in. The comparator is total, so the
+			// split sets are the same on every platform.
+			const auto emit = [&](size_t begin, size_t end) {
+				RayChunk chunk;
+				chunk.subsetIndex = subsetIndex;
+				chunk.firstEntry = (uint32_t)ray_chunk_triangles.size();
+				chunk.triangleCount = (uint32_t)(end - begin);
+				XMFLOAT3 lo(FLT_MAX, FLT_MAX, FLT_MAX);
+				XMFLOAT3 hi(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+				for (size_t e = begin; e < end; ++e)
+				{
+					ray_chunk_triangles.push_back(entries[e].triangle);
+					for (uint32_t corner = 0; corner < 3; ++corner)
 					{
-						ray_chunks.clear();
-						return;
+						const XMFLOAT3& p = vertex_positions[indices[subset.indexOffset + entries[e].triangle * 3 + corner]];
+						lo = XMFLOAT3(std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z));
+						hi = XMFLOAT3(std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z));
 					}
-					lo = XMFLOAT3(std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z));
-					hi = XMFLOAT3(std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z));
+				}
+				// Index order inside a chunk: canonical, and cache-friendly.
+				std::sort(ray_chunk_triangles.begin() + chunk.firstEntry, ray_chunk_triangles.end());
+				if (skinned)
+				{
+					chunkBones.clear();
+					chunk.weightSumMin = FLT_MAX;
+					chunk.weightSumMax = 0;
+					for (uint32_t e = chunk.firstEntry; e < (uint32_t)ray_chunk_triangles.size(); ++e)
+					{
+						for (uint32_t corner = 0; corner < 3; ++corner)
+						{
+							const uint32_t vertex = indices[subset.indexOffset + ray_chunk_triangles[e] * 3 + corner];
+							float sum = 0;
+							for (uint32_t set = 0; set < influenceSets; ++set)
+							{
+								const XMUINT4& bone = set == 0 ? vertex_boneindices[vertex] : vertex_boneindices2[vertex];
+								const XMFLOAT4& weight = set == 0 ? vertex_boneweights[vertex] : vertex_boneweights2[vertex];
+								const uint32_t bones[4] = { bone.x, bone.y, bone.z, bone.w };
+								const float weights[4] = { weight.x, weight.y, weight.z, weight.w };
+								for (int k = 0; k < 4; ++k)
+								{
+									sum += weights[k];
+									if (weights[k] != 0)
+										chunkBones.push_back(bones[k]);
+								}
+							}
+							chunk.weightSumMin = std::min(chunk.weightSumMin, sum);
+							chunk.weightSumMax = std::max(chunk.weightSumMax, sum);
+						}
+					}
+					std::sort(chunkBones.begin(), chunkBones.end());
+					chunkBones.erase(std::unique(chunkBones.begin(), chunkBones.end()), chunkBones.end());
+					chunk.firstBone = (uint32_t)ray_chunk_bones.size();
+					chunk.boneCount = (uint32_t)chunkBones.size();
+					ray_chunk_bones.insert(ray_chunk_bones.end(), chunkBones.begin(), chunkBones.end());
+					if (!chunkBones.empty())
+						ray_chunks_bone_limit = std::max(ray_chunks_bone_limit, chunkBones.back() + 1);
 				}
 				// Padding keeps a triangle lying on a box face inside the slab test
 				// despite float rounding.
 				const float extent = std::max({ std::abs(lo.x), std::abs(lo.y), std::abs(lo.z),
 					std::abs(hi.x), std::abs(hi.y), std::abs(hi.z) });
 				const float pad = std::max(1e-4f, extent * 1e-5f);
-				RayChunk chunk;
 				chunk.bounds = wi::primitive::AABB(XMFLOAT3(lo.x - pad, lo.y - pad, lo.z - pad),
 					XMFLOAT3(hi.x + pad, hi.y + pad, hi.z + pad));
-				chunk.subsetIndex = subsetIndex;
-				chunk.firstTriangle = first;
-				chunk.triangleCount = count;
 				ray_chunks.push_back(chunk);
+			};
+			wi::vector<std::pair<size_t, size_t>> pending = { { 0, entries.size() } };
+			while (!pending.empty())
+			{
+				const auto [begin, end] = pending.back();
+				pending.pop_back();
+				if (end - begin <= kRayChunkTriangles)
+				{
+					emit(begin, end);
+					continue;
+				}
+				XMFLOAT3 lo(FLT_MAX, FLT_MAX, FLT_MAX);
+				XMFLOAT3 hi(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+				for (size_t e = begin; e < end; ++e)
+				{
+					const XMFLOAT3& c = entries[e].centroid;
+					lo = XMFLOAT3(std::min(lo.x, c.x), std::min(lo.y, c.y), std::min(lo.z, c.z));
+					hi = XMFLOAT3(std::max(hi.x, c.x), std::max(hi.y, c.y), std::max(hi.z, c.z));
+				}
+				const float dx = hi.x - lo.x, dy = hi.y - lo.y, dz = hi.z - lo.z;
+				const int axis = dx >= dy && dx >= dz ? 0 : dy >= dz ? 1 : 2;
+				const auto key = [axis](const Entry& e) { return axis == 0 ? e.centroid.x : axis == 1 ? e.centroid.y : e.centroid.z; };
+				const size_t middle = begin + (end - begin) / 2;
+				std::nth_element(entries.begin() + begin, entries.begin() + middle, entries.begin() + end,
+					[&](const Entry& a, const Entry& b) { return key(a) < key(b) || (key(a) == key(b) && a.triangle < b.triangle); });
+				// Push the upper half first so chunks are emitted lower half first.
+				pending.emplace_back(middle, end);
+				pending.emplace_back(begin, middle);
 			}
 		}
 	}

@@ -6580,6 +6580,40 @@ namespace wi::scene
 			const float distance = entry * directionLength;
 			return std::isfinite(distance) && distance > 0 ? distance : 0;
 		}
+		// DMO (WICKED-ZONE-OPT-MAC-AUDIT-2026-11-09 N5 slice 2): a skinned chunk's
+		// box in its current pose, in the mesh's local space. Every posed vertex
+		// is S * c, where c lies in the union of the bind box transformed by each
+		// bone that moves the chunk and S is the vertex's weight sum (see
+		// MeshComponent::RayChunk), so the box of S * c over the S range bounds it.
+		AABB PosedRayChunkBounds(const MeshComponent& mesh, const MeshComponent::RayChunk& chunk,
+			const wi::vector<XMFLOAT4X4>& poseMatrices)
+		{
+			XMVECTOR lo = XMVectorReplicate(FLT_MAX);
+			XMVECTOR hi = XMVectorReplicate(-FLT_MAX);
+			for (uint32_t b = chunk.firstBone; b < chunk.firstBone + chunk.boneCount; ++b)
+			{
+				const AABB moved = chunk.bounds.transform(XMLoadFloat4x4(&poseMatrices[mesh.ray_chunk_bones[b]]));
+				lo = XMVectorMin(lo, XMLoadFloat3(&moved._min));
+				hi = XMVectorMax(hi, XMLoadFloat3(&moved._max));
+			}
+			if (chunk.boneCount == 0)
+			{
+				lo = XMVectorZero(); // every weight is zero: each vertex lands on the origin
+				hi = XMVectorZero();
+			}
+			const XMVECTOR sMin = XMVectorReplicate(chunk.weightSumMin);
+			const XMVECTOR sMax = XMVectorReplicate(chunk.weightSumMax);
+			const XMVECTOR a = lo * sMin, b = lo * sMax, c = hi * sMin, d = hi * sMax;
+			XMFLOAT3 low, high;
+			XMStoreFloat3(&low, XMVectorMin(XMVectorMin(a, b), XMVectorMin(c, d)));
+			XMStoreFloat3(&high, XMVectorMax(XMVectorMax(a, b), XMVectorMax(c, d)));
+			// Rounding: the query sums up to eight weighted transforms per vertex.
+			const float extent = std::max({ std::abs(low.x), std::abs(low.y), std::abs(low.z),
+				std::abs(high.x), std::abs(high.y), std::abs(high.z) });
+			const float pad = std::max(1e-4f, extent * 1e-4f);
+			return AABB(XMFLOAT3(low.x - pad, low.y - pad, low.z - pad), XMFLOAT3(high.x + pad, high.y + pad, high.z + pad));
+		}
+
 		// A candidate whose box starts beyond this cannot hold a nearer hit.
 		// The margin absorbs float differences between the slab entry and the
 		// triangle's world distance, so a skipped box never held the winner.
@@ -6679,6 +6713,11 @@ namespace wi::scene
 		// only if the old order would have reached it first.
 		constexpr int64_t kNoHitRank = INT64_MAX;
 		int64_t resultRank = kNoHitRank;
+		// Within one object, ties go to the lowest (subset, triangle), as the
+		// plain index-order loop chose; chunks may visit triangles in any order.
+		uint64_t resultTriangleKey = UINT64_MAX;
+		// Reused by every chunked mesh of this query: (entry distance, chunk).
+		wi::vector<std::pair<float, uint32_t>> reachableChunks;
 
 		const XMVECTOR rayOrigin = XMLoadFloat3(&ray.origin);
 		const XMVECTOR rayDirection = XMVector3Normalize(XMLoadFloat3(&ray.direction));
@@ -6813,7 +6852,9 @@ namespace wi::scene
 						distance = wi::math::Distance(pos, rayOrigin);
 
 						// Note: we do the TMin, Tmax check here, in world space! We use the RayTriangleIntersects in local space, so we don't use those in there
-						const bool nearer = distance < result.distance || (distance == result.distance && rank < resultRank);
+						const uint64_t triangleKey = (uint64_t(subsetIndex) << 32) | triangleIndex;
+						const bool nearer = distance < result.distance || (distance == result.distance &&
+							(rank < resultRank || (rank == resultRank && triangleKey < resultTriangleKey)));
 						if (nearer && distance >= ray.TMin && distance <= ray.TMax)
 						{
 							XMVECTOR nor;
@@ -6871,6 +6912,7 @@ namespace wi::scene
 							result.vertexID2 = (int)i2;
 							result.bary = bary;
 							resultRank = rank;
+							resultTriangleKey = triangleKey;
 						}
 					}
 				};
@@ -6890,14 +6932,19 @@ namespace wi::scene
 						intersect_triangle(subsetIndex, indexOffset, triangleIndex);
 					});
 				}
-				else if (skinScratch.bones == nullptr && mesh->HasCurrentRayChunks())
+				else if (mesh->HasCurrentRayChunks() && (skinScratch.bones == nullptr ||
+					(!skinScratch.poseMatrices.empty() && !mesh->ray_chunk_bones.empty() &&
+					 mesh->ray_chunks_bone_limit <= skinScratch.poseMatrices.size())))
 				{
 					// DMO (WICKED-ZONE-OPT-MAC-AUDIT-2026-11-09 N5): the same
-					// subsets and triangles in the same order as the plain loop
-					// below, skipping only chunks the ray cannot reach: missed by
+					// subsets and triangles as the plain loop below, front to back
+					// by chunk, skipping only chunks the ray cannot reach: missed by
 					// the ray, beyond its range, or starting beyond the nearest hit.
-					// The query reads these rigid positions undeformed, so the
-					// chunk boxes bound exactly what it tests.
+					// Undeformed positions are bounded by the stored boxes; posed
+					// ones by the boxes moved by the chunk's bones, from the same
+					// prepared matrices the query skins with. The triangle key
+					// keeps ties as the plain loop decided them.
+					const bool posed = skinScratch.bones != nullptr;
 					uint32_t first_subset = 0;
 					uint32_t last_subset = 0;
 					mesh->GetLODSubsetRange(lod, first_subset, last_subset);
@@ -6905,28 +6952,42 @@ namespace wi::scene
 					// World distance per unit of local ray parameter (exact for the
 					// object's linear transform; the local direction is normalized).
 					const float worldPerLocal = XMVectorGetX(XMVector3Length(XMVector3TransformNormal(rayDirection_local, objectMat)));
-					for (const MeshComponent::RayChunk& chunk : mesh->ray_chunks)
+					reachableChunks.clear();
+					for (uint32_t chunkIndex = 0; chunkIndex < (uint32_t)mesh->ray_chunks.size(); ++chunkIndex)
 					{
+						const MeshComponent::RayChunk& chunk = mesh->ray_chunks[chunkIndex];
 						if (chunk.subsetIndex < first_subset || chunk.subsetIndex >= last_subset)
 							continue;
-						const MeshComponent::MeshSubset& subset = mesh->subsets[chunk.subsetIndex];
-						if (subset.indexCount == 0)
+						if (mesh->subsets[chunk.subsetIndex].indexCount == 0)
 							continue;
-						if (!ray_local.intersects(chunk.bounds))
+						const AABB bounds = posed ? PosedRayChunkBounds(*mesh, chunk, skinScratch.poseMatrices) : chunk.bounds;
+						if (!ray_local.intersects(bounds))
 						{
 							if (stats) stats->chunksSkipped++;
 							continue;
 						}
-						const float entry = RayEntryDistance(ray_local, chunk.bounds, 1.0f) * worldPerLocal;
+						const float entry = RayEntryDistance(ray_local, bounds, 1.0f) * worldPerLocal;
 						if (entry > RayPruneLimit(result.distance) || entry > RayPruneLimit(ray.TMax))
 						{
 							if (stats) stats->chunksSkipped++;
 							continue;
 						}
-						const uint32_t end = chunk.firstTriangle + chunk.triangleCount;
-						for (uint32_t triangleIndex = chunk.firstTriangle; triangleIndex < end; ++triangleIndex)
+						reachableChunks.emplace_back(entry, chunkIndex);
+					}
+					std::sort(reachableChunks.begin(), reachableChunks.end());
+					for (size_t reachable = 0; reachable < reachableChunks.size(); ++reachable)
+					{
+						if (reachableChunks[reachable].first > RayPruneLimit(result.distance))
 						{
-							intersect_triangle(chunk.subsetIndex, subset.indexOffset, triangleIndex);
+							if (stats) stats->chunksSkipped += reachableChunks.size() - reachable;
+							break;
+						}
+						const MeshComponent::RayChunk& chunk = mesh->ray_chunks[reachableChunks[reachable].second];
+						const uint32_t indexOffset = mesh->subsets[chunk.subsetIndex].indexOffset;
+						const uint32_t end = chunk.firstEntry + chunk.triangleCount;
+						for (uint32_t entryIndex = chunk.firstEntry; entryIndex < end; ++entryIndex)
+						{
+							intersect_triangle(chunk.subsetIndex, indexOffset, mesh->ray_chunk_triangles[entryIndex]);
 						}
 					}
 				}

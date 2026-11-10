@@ -773,23 +773,41 @@ namespace wi::scene
 		wi::BVH bvh;
 
 		// DMO (WICKED-ZONE-OPT-MAC-AUDIT-2026-11-09 N5): coarse CPU ray-query
-		// bounds for large rigid meshes, about 0.1 byte per triangle against a
-		// BVH's ~130. One local-space box per run of up to kRayChunkTriangles
-		// consecutive triangles of a subset, in index order. Derived from
-		// vertex_positions/indices by CreateRenderData (which every geometry
-		// change already calls) and never serialized. The nearest ray query uses
-		// them only for meshes it reads undeformed, and only while the recorded
-		// counts still match the geometry.
+		// bounds for large rigid meshes, about 4 bytes per triangle against a
+		// BVH's ~130. One local-space box per group of up to kRayChunkTriangles
+		// triangles of a subset that lie near each other, found by median splits
+		// of their centroids: index order can run in strips across a whole mesh
+		// (backdrop mountains) and would give every chunk a box around the
+		// camera. ray_chunk_triangles lists each chunk's triangle indices (within
+		// its subset, ascending). Derived from vertex_positions, indices and bone
+		// weights by CreateRenderData (which every geometry change already calls)
+		// and never serialized. The nearest ray query uses
+		// them only while the recorded counts still match the geometry.
+		//
+		// Skinned meshes: bounds holds the chunk's bind-pose box, and the chunk
+		// also lists the bones that move its vertices (ray_chunk_bones) and the
+		// range of its vertices' weight sums. A posed vertex is a weighted sum of
+		// bone transforms of its bind position, so with non-negative weights it
+		// lies within the union of the bind box transformed by each listed bone,
+		// scaled by its weight sum. Meshes with a negative or non-finite weight
+		// get no chunks.
 		struct RayChunk
 		{
 			wi::primitive::AABB bounds;
 			uint32_t subsetIndex = 0;
-			uint32_t firstTriangle = 0;
+			uint32_t firstEntry = 0; // into ray_chunk_triangles
 			uint32_t triangleCount = 0;
+			uint32_t firstBone = 0; // into ray_chunk_bones (skinned meshes)
+			uint32_t boneCount = 0;
+			float weightSumMin = 1;
+			float weightSumMax = 1;
 		};
 		static constexpr uint32_t kRayChunkTriangles = 128;
 		static constexpr uint32_t kRayChunkMinTriangles = 4096;
 		wi::vector<RayChunk> ray_chunks;
+		wi::vector<uint32_t> ray_chunk_triangles;
+		wi::vector<uint32_t> ray_chunk_bones;
+		uint32_t ray_chunks_bone_limit = 0; // one past the highest listed bone; 0 for rigid meshes
 		size_t ray_chunks_vertices = 0;
 		size_t ray_chunks_indices = 0;
 		void BuildRayChunks();
