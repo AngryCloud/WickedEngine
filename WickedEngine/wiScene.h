@@ -69,7 +69,8 @@ namespace wi::scene
 		wi::ecs::ComponentManager<CharacterComponent>& characters = componentLibrary.Register<CharacterComponent>("wi::scene::Scene::characters");
 		wi::ecs::ComponentManager<PhysicsConstraintComponent>& constraints = componentLibrary.Register<PhysicsConstraintComponent>("wi::scene::Scene::constraints", 6); // version = 6
 		wi::ecs::ComponentManager<SplineComponent>& splines = componentLibrary.Register<SplineComponent>("wi::scene::Scene::splines", 4); // version = 4
-		wi::ecs::ComponentManager<wi::GaussianSplatModel>& gaussian_splats = componentLibrary.Register<wi::GaussianSplatModel>("wi::scene::Scene::gaussian_splats");
+		wi::ecs::ComponentManager<wi::GaussianSplatModel>& gaussian_splats = componentLibrary.Register<wi::GaussianSplatModel>("wi::scene::Scene::gaussian_splats", 1); // version = 1
+		wi::ecs::ComponentManager<wi::GaussianSplatInstanceSet>& gaussian_splat_instance_sets = componentLibrary.Register<wi::GaussianSplatInstanceSet>("wi::scene::Scene::gaussian_splat_instance_sets");
 
 		// Non-serialized attributes:
 		float dt = 0;

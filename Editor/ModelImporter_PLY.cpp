@@ -116,9 +116,10 @@ void ImportModel_PLY(const std::string& fileName, wi::scene::Scene& scene)
 		Entity entity = CreateEntity();
 		scene.names.Create(entity) = wi::helper::GetFileNameFromPath(fileName);
 		scene.transforms.Create(entity);
-		if (!f_rest.empty())
+		const bool splatAttributes = rotations.size() == positions.size() && scales.size() == positions.size() && opacities.size() == positions.size() && f_dc.size() == positions.size();
+		if (!f_rest.empty() || splatAttributes)
 		{
-			// It's a gaussian splat model:
+			// It's a gaussian splat model (view dependent colour is optional):
 			wi::GaussianSplatModel& splat = scene.gaussian_splats.Create(entity);
 			// These are flipping the model vertically, was needed on the gaussian models I tested with:
 			for (auto& x : positions)

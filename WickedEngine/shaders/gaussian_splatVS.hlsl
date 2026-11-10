@@ -1,9 +1,11 @@
 #include "globals.hlsli"
+#include "fogHF.hlsli"
 #include "ShaderInterop_GaussianSplat.h"
 
 StructuredBuffer<uint> sortedIndexBuffer : register(t0);
 StructuredBuffer<uint2> splatLookupBuffer : register(t1);
 StructuredBuffer<ShaderGaussianSplatModel> modelBuffer : register(t2);
+StructuredBuffer<ShaderGaussianSplatInstance> instanceBuffer : register(t3);
 
 struct Push
 {
@@ -241,22 +243,35 @@ void main(in uint vertexID : SV_VertexID, in uint instanceID : SV_InstanceID, ou
 	RTIndex = camera.output_index;
 
 	const uint2 lookup = splatLookupBuffer[splatIndexGlobal];
-	const uint modelIndex = lookup.x;
 	const uint splatIndex = lookup.y;
-	ShaderGaussianSplatModel model = modelBuffer[modelIndex];
+	ShaderGaussianSplatInstance instance = instanceBuffer[lookup.x];
+	ShaderGaussianSplatModel model = modelBuffer[instance.model_index];
 	StructuredBuffer<GaussianSplat> splats = bindless_structured_gaussian_splats[NonUniformResourceIndex(descriptor_index(model.descriptor_splatBuffer))];
 
-	//const float4x4 modelViewMatrix = mul(camera.view, model.transform.GetMatrix());
-	const float4x4 modelViewMatrix = model.modelViewMatrices[cameraIndex]; // optimization: precomputed above matrix on CPU
+	const float4x4 worldMatrix = instance.transform.GetMatrix();
+	const float4x4 modelViewMatrix = mul(camera.view, worldMatrix);
 
 	const float3 splatCenter = float4(lerp(model.aabb_min, model.aabb_max, unpack_unorm16x4(splats[splatIndex].position_radius).xyz), 1).xyz;
+	const float3 worldCenter = mul(worldMatrix, float4(splatCenter, 1)).xyz;
+	const float3 eyeToSplat = worldCenter - camera.position;
 	color = unpack_half4(splats[splatIndex].color);
-	half3 viewDir = normalize(splatCenter - mul(model.transform_inverse.GetMatrix(), float4(camera.position, 1)).xyz);
-	color.rgb += fetchViewDependentRadiance(model, splatIndex, viewDir);
+	if (model.sphericalHarmonicsDegree > 0)
+	{
+		// World direction into model space: inverse(M) * v == mul(v, adjoint(M)) / det(M)
+		const float3x3 adjugate = instance.transform.GetMatrixAdjoint();
+		const float3 localDir = mul(eyeToSplat, adjugate) * (dot(worldMatrix[0].xyz, adjugate[0]) < 0 ? -1.0 : 1.0);
+		color.rgb += fetchViewDependentRadiance(model, splatIndex, (half3)normalize(localDir));
+	}
+	color *= unpack_half4(instance.tint);
+
+	// Fog at the splat centre, like opaque surfaces at that distance:
+	const float eyeDistance = length(eyeToSplat);
+	const half4 fog = GetFog(eyeDistance, camera.position, eyeToSplat / max(eyeDistance, 0.0001));
+	color.rgb = lerp(color.rgb, fog.rgb, fog.a);
 
 	const float4 viewCenter = mul(modelViewMatrix, float4(splatCenter, 1.0));
 	const float4 clipCenter = mul(camera.projection, viewCenter);
-	const float3x3 cov3Dm = fetchCovariance(splats, splatIndex);
+	const float3x3 cov3Dm = fetchCovariance(splats, splatIndex) * sqr(instance.footprint_scale);
 	const float3 cov2Dv = threedgsCovarianceProjection(cov3Dm, viewCenter, camera.focal, modelViewMatrix); // computes the basis vectors of the extent of the projected covariance
 	const float2 fragPos = BILLBOARD[vertexID].xy;
 	localPos = fragPos * sqrt8;

@@ -5369,9 +5369,11 @@ namespace wi::scene
 
 		if (gaussian_splats.GetCount() > 0)
 		{
+			// Upper bounds of one GaussianSplatScene::UpdateGPU: every standalone model and every placement drawn at once
+			size_t draw_count = 0;
+			size_t splat_count = 0;
 			for (size_t i = 0; i < gaussian_splats.GetCount(); ++i)
 			{
-				const wi::GaussianSplatModel& splat = gaussian_splats[i];
 				XMFLOAT4X4 matrix = wi::math::IDENTITY_MATRIX;
 				Entity entity = gaussian_splats.GetEntity(i);
 				const TransformComponent* transform = transforms.GetComponent(entity);
@@ -5380,8 +5382,23 @@ namespace wi::scene
 					matrix = transform->world;
 				}
 				gaussian_splats[i].Update(matrix);
+				if (!gaussian_splats[i].IsInstanceAsset())
+				{
+					draw_count++;
+					splat_count += gaussian_splats[i].GetSplatCount();
+				}
 			}
-			gaussian_scene.MakeReservations(gaussian_splats.GetData(), gaussian_splats.GetCount());
+			for (size_t i = 0; i < gaussian_splat_instance_sets.GetCount(); ++i)
+			{
+				wi::GaussianSplatInstanceSet& set = gaussian_splat_instance_sets[i];
+				set.Update(gaussian_splats.GetComponent(set.model));
+				draw_count += set.instances.size();
+				for (size_t instance = 0; instance < set.instances.size(); ++instance)
+				{
+					splat_count += set.GetDrawCount(instance);
+				}
+			}
+			gaussian_scene.MakeReservations(gaussian_splats.GetCount(), draw_count, splat_count);
 		}
 		else
 		{

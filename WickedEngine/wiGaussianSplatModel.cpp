@@ -28,10 +28,17 @@ namespace wi
 		GraphicsDevice* device = GetDevice();
 
 		aabb_rest = AABB();
+		float maxLogScale = -std::numeric_limits<float>::infinity();
 		for (size_t splatIdx = 0; splatIdx < positions.size(); ++splatIdx)
 		{
 			aabb_rest.AddPoint(positions[splatIdx]);
+			maxLogScale = std::max(maxLogScale, std::max(scales[splatIdx].x, std::max(scales[splatIdx].y, scales[splatIdx].z)));
 		}
+		boundingRadius = positions.empty() ? 0.0f : aabb_rest.getRadius();
+		maxSplatExtent = positions.empty() ? 0.0f : std::exp(maxLogScale) * std::sqrt(8.0f);
+
+		const uint32_t sphericalHarmonicsCoefficientsPerChannel = positions.empty() ? 0 : uint32_t(f_rest.size() / positions.size() / 3);
+		const int sphericalHarmonicsCount = GetSphericalHarmonicsCount(GetSphericalHarmonicsDegree());
 
 		GPUBufferDesc desc;
 		desc.bind_flags = BindFlag::SHADER_RESOURCE;
@@ -40,30 +47,11 @@ namespace wi
 		const uint64_t alignment = device->GetMinOffsetAlignment(&desc);
 		desc.size =
 			align(uint64_t(positions.size() * sizeof(GaussianSplat)), alignment) +
-			align(uint64_t(f_rest.size() / 3 * sizeof(XMHALF4)), alignment);
+			align(uint64_t(positions.size() * sphericalHarmonicsCount * sizeof(XMHALF4)), alignment);
 
 		const uint64_t sh_aligned_offset = align(uint64_t(positions.size() * sizeof(GaussianSplat)), alignment);
 
 		auto fill_gpu = [&](void* dest) {
-			const uint32_t totalSphericalHarmonicsComponentCount = uint32_t(f_rest.size() / positions.size());
-			const uint32_t sphericalHarmonicsCoefficientsPerChannel = totalSphericalHarmonicsComponentCount / 3;
-			int sphericalHarmonicsDegree = 0;
-			int sphericalHarmonicsCount = 0;
-			if (sphericalHarmonicsCoefficientsPerChannel >= 3)
-			{
-				sphericalHarmonicsDegree = 1;
-				sphericalHarmonicsCount += 3;
-			}
-			if (sphericalHarmonicsCoefficientsPerChannel >= 8)
-			{
-				sphericalHarmonicsDegree = 2;
-				sphericalHarmonicsCount += 5;
-			}
-			if (sphericalHarmonicsCoefficientsPerChannel == 15)
-			{
-				sphericalHarmonicsDegree = 3;
-				sphericalHarmonicsCount += 7;
-			}
 			GaussianSplat* splat_dest = (GaussianSplat*)dest;
 			XMHALF4* sh_dest = (XMHALF4*)((uint8_t*)dest + sh_aligned_offset);
 			for (size_t splatIdx = 0; splatIdx < positions.size(); ++splatIdx)
@@ -113,39 +101,17 @@ namespace wi
 				std::memcpy(splat_dest + splatIdx, &splat, sizeof(splat)); // memcpy into uncached
 
 
-				// View dependent SH data is deinterleaved, now I interleave it into 16x (rgb) vectors per splat:
+				// View dependent SH data is deinterleaved, now I interleave it into 16x (rgb) vectors per splat.
+				//	Only the coefficients of the supported degree are written, so lower degrees stay inside their own range:
 				HALF* dst = (HALF*)(sh_dest + sphericalHarmonicsCount * splatIdx);
-				const auto srcBase = sphericalHarmonicsCount * 3 * splatIdx;
-				int dstOffset = 0;
-				// degree 1, three coefs per component
-				for (auto i = 0; i < 3; i++)
+				const size_t srcBase = size_t(sphericalHarmonicsCoefficientsPerChannel) * 3 * splatIdx;
+				for (int i = 0; i < sphericalHarmonicsCount; i++)
 				{
-					for (auto rgb = 0; rgb < 3; rgb++)
+					for (int rgb = 0; rgb < 3; rgb++)
 					{
-						const auto srcIndex = srcBase + (sphericalHarmonicsCoefficientsPerChannel * rgb + i);
-						dst[dstOffset++] = XMConvertFloatToHalf(f_rest[srcIndex]);
+						dst[i * 4 + rgb] = XMConvertFloatToHalf(f_rest[srcBase + sphericalHarmonicsCoefficientsPerChannel * rgb + i]);
 					}
-					dstOffset++; // 4th component wasted
-				}
-				// degree 2, five coefs per component
-				for (auto i = 0; i < 5; i++)
-				{
-					for (auto rgb = 0; rgb < 3; rgb++)
-					{
-						const auto srcIndex = srcBase + (sphericalHarmonicsCoefficientsPerChannel * rgb + 3 + i);
-						dst[dstOffset++] = XMConvertFloatToHalf(f_rest[srcIndex]);
-					}
-					dstOffset++; // 4th component wasted
-				}
-				// degree 3, seven coefs per component
-				for (auto i = 0; i < 7; i++)
-				{
-					for (auto rgb = 0; rgb < 3; rgb++)
-					{
-						const auto srcIndex = srcBase + (sphericalHarmonicsCoefficientsPerChannel * rgb + 3 + 5 + i);
-						dst[dstOffset++] = XMConvertFloatToHalf(f_rest[srcIndex]);
-					}
-					dstOffset++; // 4th component wasted
+					dst[i * 4 + 3] = 0; // 4th component wasted
 				}
 			}
 		};
@@ -157,8 +123,12 @@ namespace wi
 		static constexpr uint32_t splat_stride = sizeof(GaussianSplat);
 		subresource_splatBuffer = device->CreateSubresource(&buffer, SubresourceType::SRV, 0, positions.size() * sizeof(GaussianSplat), nullptr, &splat_stride);
 
-		static constexpr uint32_t sh_stride = sizeof(XMHALF4); // could be formatted buffer, but that has stricter size limitation on Mac OS
-		subresource_shBuffer = device->CreateSubresource(&buffer, SubresourceType::SRV, sh_aligned_offset, f_rest.size() / 3 * sizeof(XMHALF4), nullptr, &sh_stride);
+		subresource_shBuffer = -1;
+		if (sphericalHarmonicsCount > 0)
+		{
+			static constexpr uint32_t sh_stride = sizeof(XMHALF4); // could be formatted buffer, but that has stricter size limitation on Mac OS
+			subresource_shBuffer = device->CreateSubresource(&buffer, SubresourceType::SRV, sh_aligned_offset, positions.size() * sphericalHarmonicsCount * sizeof(XMHALF4), nullptr, &sh_stride);
+		}
 	}
 
 	void GaussianSplatModel::Update(const XMFLOAT4X4& matrix)
@@ -179,6 +149,10 @@ namespace wi
 	{
 		if (archive.IsReadMode())
 		{
+			if (seri.GetVersion() >= 1)
+			{
+				archive >> _flags;
+			}
 			archive >> positions;
 			archive >> rotations;
 			archive >> scales;
@@ -192,6 +166,10 @@ namespace wi
 		}
 		else
 		{
+			if (seri.GetVersion() >= 1)
+			{
+				archive << _flags;
+			}
 			archive << positions;
 			archive << rotations;
 			archive << scales;
@@ -248,8 +226,9 @@ namespace wi
 
 	int GaussianSplatModel::GetSphericalHarmonicsDegree() const
 	{
-		const uint32_t totalSphericalHarmonicsComponentCount = uint32_t(f_rest.size() / positions.size());
-		const uint32_t sphericalHarmonicsCoefficientsPerChannel = totalSphericalHarmonicsComponentCount / 3;
+		if (positions.empty())
+			return 0;
+		const uint32_t sphericalHarmonicsCoefficientsPerChannel = uint32_t(f_rest.size() / positions.size() / 3);
 		int sphericalHarmonicsDegree = 0;
 		if (sphericalHarmonicsCoefficientsPerChannel >= 3)
 		{
@@ -264,6 +243,11 @@ namespace wi
 			sphericalHarmonicsDegree = 3;
 		}
 		return sphericalHarmonicsDegree;
+	}
+	int GaussianSplatModel::GetSphericalHarmonicsCount(int degree)
+	{
+		static constexpr int counts[] = { 0, 3, 8, 15 };
+		return counts[std::clamp(degree, 0, 3)];
 	}
 	size_t GaussianSplatModel::GetMemorySizeCPU() const
 	{
@@ -281,14 +265,74 @@ namespace wi
 		return buffer.desc.size;
 	}
 
-	void GaussianSplatScene::MakeReservations(const GaussianSplatModel* models, size_t model_count)
+	uint32_t GaussianSplatInstanceSet::GetDrawCount(size_t index) const
+	{
+		if (asset == nullptr)
+			return 0;
+		return std::min(instances[index].splatCount, uint32_t(asset->GetSplatCount()));
+	}
+
+	Sphere GaussianSplatInstanceSet::GetBoundingSphere(size_t index) const
+	{
+		const XMFLOAT4& bound = bounds[index];
+		const float footprint = std::max(instances[index].footprintScale, 0.0f);
+		return Sphere(XMFLOAT3(bound.x, bound.y, bound.z), bound.w * (asset->boundingRadius + asset->maxSplatExtent * footprint));
+	}
+
+	void GaussianSplatInstanceSet::Update(const GaussianSplatModel* model)
+	{
+		asset = model;
+		aabb = AABB();
+		bounds.resize(instances.size());
+		if (asset == nullptr)
+			return;
+		const XMFLOAT3 restCenter = asset->aabb_rest.getCenter();
+		const XMVECTOR center = XMLoadFloat3(&restCenter);
+		for (size_t i = 0; i < instances.size(); ++i)
+		{
+			const float radius = asset->boundingRadius + asset->maxSplatExtent * std::max(instances[i].footprintScale, 1.0f);
+			const XMMATRIX W = XMLoadFloat4x4(&instances[i].transform);
+			const float axisScale = std::max(XMVectorGetX(XMVector3Length(W.r[0])), std::max(XMVectorGetX(XMVector3Length(W.r[1])), XMVectorGetX(XMVector3Length(W.r[2]))));
+			XMFLOAT3 worldCenter;
+			XMStoreFloat3(&worldCenter, XMVector3Transform(center, W));
+			bounds[i] = XMFLOAT4(worldCenter.x, worldCenter.y, worldCenter.z, axisScale);
+			const float extent = axisScale * radius;
+			aabb = AABB::Merge(aabb, AABB(XMFLOAT3(worldCenter.x - extent, worldCenter.y - extent, worldCenter.z - extent), XMFLOAT3(worldCenter.x + extent, worldCenter.y + extent, worldCenter.z + extent)));
+		}
+	}
+
+	void GaussianSplatInstanceSet::Serialize(wi::Archive& archive, wi::ecs::EntitySerializer& seri)
+	{
+		wi::ecs::SerializeEntity(archive, model, seri);
+		if (archive.IsReadMode())
+		{
+			size_t count = 0;
+			archive >> count;
+			instances.resize(count);
+			for (GaussianSplatInstance& instance : instances)
+			{
+				archive >> instance.transform;
+				archive >> instance.splatCount;
+				archive >> instance.footprintScale;
+				archive >> instance.tint;
+			}
+		}
+		else
+		{
+			archive << instances.size();
+			for (const GaussianSplatInstance& instance : instances)
+			{
+				archive << instance.transform;
+				archive << instance.splatCount;
+				archive << instance.footprintScale;
+				archive << instance.tint;
+			}
+		}
+	}
+
+	void GaussianSplatScene::MakeReservations(size_t model_count, size_t draw_count, size_t splat_count)
 	{
 		GraphicsDevice* device = GetDevice();
-		size_t global_splat_count = 0;
-		for (size_t model_index = 0; model_index < model_count; ++model_index)
-		{
-			global_splat_count += models[model_index].GetSplatCount();
-		}
 
 		if (!indirectBuffer.IsValid())
 		{
@@ -302,9 +346,9 @@ namespace wi
 			device->SetName(&indirectBuffer, "GaussianSplatScene::indirectBuffer");
 		}
 
-		if (global_splat_count > splat_capacity)
+		if (splat_count > splat_capacity)
 		{
-			splat_capacity = global_splat_count;
+			splat_capacity = splat_count;
 
 			GPUBufferDesc desc;
 			desc.stride = sizeof(uint32_t);
@@ -345,62 +389,66 @@ namespace wi
 			assert(success);
 			device->SetName(&modelBuffer, "GaussianSplatScene::modelBuffer");
 		}
+
+		if (draw_count > draw_capacity)
+		{
+			draw_capacity = draw_count;
+
+			GPUBufferDesc desc;
+			desc.stride = sizeof(ShaderGaussianSplatInstance);
+			desc.size = draw_capacity * desc.stride;
+			desc.bind_flags = BindFlag::SHADER_RESOURCE;
+			desc.misc_flags = ResourceMiscFlag::BUFFER_STRUCTURED;
+			bool success = device->CreateBuffer(&desc, nullptr, &instanceBuffer);
+			assert(success);
+			device->SetName(&instanceBuffer, "GaussianSplatScene::instanceBuffer");
+		}
 	}
 
-	void GaussianSplatScene::UpdateGPU(const GaussianSplatModel** models, size_t model_count, CommandList cmd, const XMFLOAT4X4* viewmatrices, uint32_t camera_count) const
+	void GaussianSplatScene::UpdateGPU(const GaussianSplatDraw* draws, size_t draw_count, CommandList cmd, uint32_t camera_count) const
 	{
 		ScopedGPUProfiling("Gaussian splat culling and sorting", cmd);
 		GraphicsDevice* device = GetDevice();
 		device->EventBegin("Gaussian Splat Update", cmd);
 
-		size_t global_splat_count = 0;
-		const size_t shmodeldatasize = sizeof(ShaderGaussianSplatModel) * model_count;
-		auto alloc = device->AllocateGPU(shmodeldatasize, cmd);
-		ShaderGaussianSplatModel* dest = (ShaderGaussianSplatModel*)alloc.data;
-		for (size_t model_index = 0; model_index < model_count; ++model_index)
+		// Distinct assets and the placements that draw them. Placements own consecutive culling slots:
+		thread_local wi::vector<const GaussianSplatModel*> models;
+		thread_local wi::vector<ShaderGaussianSplatInstance> instances;
+		models.clear();
+		instances.clear();
+		uint32_t slot_count = 0;
+		static const float sqrt8 = std::sqrt(8.0f);
+		for (size_t draw_index = 0; draw_index < draw_count && instances.size() < draw_capacity; ++draw_index)
 		{
-			const GaussianSplatModel& model = *models[model_index];
-			ShaderGaussianSplatModel shmodel = {};
-			shmodel.descriptor_splatBuffer = device->GetDescriptorIndex(&model.buffer, SubresourceType::SRV, model.subresource_splatBuffer);
-			shmodel.descriptor_shBuffer = device->GetDescriptorIndex(&model.buffer, SubresourceType::SRV, model.subresource_shBuffer);
-			shmodel.transform.Create(model.transform);
-			shmodel.transform_inverse.Create(model.transform_inverse);
-			shmodel.aabb_min = model.aabb_rest._min;
-			shmodel.aabb_max = model.aabb_rest._max;
-			shmodel.maxScale = model.maxScale;
-			const XMMATRIX modelMatrix = XMLoadFloat4x4(&model.transform);
-			for (uint32_t i = 0; i < camera_count; ++i)
+			const GaussianSplatDraw& draw = draws[draw_index];
+			const uint32_t count = std::min(draw.splatCount, uint32_t(draw.model->GetSplatCount()));
+			if (count == 0 || size_t(slot_count) + count > splat_capacity)
+				continue;
+			uint32_t model_index = 0;
+			while (model_index < models.size() && models[model_index] != draw.model)
 			{
-				XMStoreFloat4x4(shmodel.modelViewMatrices + i, XMMatrixMultiply(modelMatrix, XMLoadFloat4x4(viewmatrices + i)));
+				model_index++;
+			}
+			if (model_index == models.size())
+			{
+				if (models.size() >= model_capacity)
+					continue;
+				models.push_back(draw.model);
 			}
 
-			const uint32_t totalSphericalHarmonicsComponentCount = uint32_t(model.f_rest.size() / model.positions.size());
-			const uint32_t sphericalHarmonicsCoefficientsPerChannel = totalSphericalHarmonicsComponentCount / 3;
-			int sphericalHarmonicsDegree = 0;
-			int sphericalHarmonicsCount = 0;
-			if (sphericalHarmonicsCoefficientsPerChannel >= 3)
-			{
-				sphericalHarmonicsDegree = 1;
-				sphericalHarmonicsCount += 3;
-			}
-			if (sphericalHarmonicsCoefficientsPerChannel >= 8)
-			{
-				sphericalHarmonicsDegree = 2;
-				sphericalHarmonicsCount += 5;
-			}
-			if (sphericalHarmonicsCoefficientsPerChannel == 15)
-			{
-				sphericalHarmonicsDegree = 3;
-				sphericalHarmonicsCount += 7;
-			}
-			shmodel.sphericalHarmonicsDegree = sphericalHarmonicsDegree;
-			shmodel.sphericalHarmonicsCount = sphericalHarmonicsCount;
-
-			std::memcpy(dest + model_index, &shmodel, sizeof(shmodel)); // memcpy into uncached
-
-			global_splat_count += model.GetSplatCount();
+			const XMMATRIX W = XMLoadFloat4x4(draw.transform);
+			const float axisScale = std::max(XMVectorGetX(XMVector3Length(W.r[0])), std::max(XMVectorGetX(XMVector3Length(W.r[1])), XMVectorGetX(XMVector3Length(W.r[2]))));
+			ShaderGaussianSplatInstance& instance = instances.emplace_back();
+			instance = {};
+			instance.transform.Create(*draw.transform);
+			instance.model_index = model_index;
+			instance.splat_offset = slot_count;
+			instance.splat_count = count;
+			instance.footprint_scale = std::max(draw.footprintScale, 0.0f);
+			instance.tint = pack_half4(draw.tint);
+			instance.cull_scale = axisScale * sqrt8 * instance.footprint_scale;
+			slot_count += count;
 		}
-		device->CopyBuffer(&modelBuffer, 0, &alloc.buffer, alloc.offset, shmodeldatasize, cmd);
 
 		IndirectDrawArgsInstanced args = {};
 		args.VertexCountPerInstance = 4;
@@ -409,20 +457,51 @@ namespace wi
 		args.StartInstanceLocation = 0;
 		device->UpdateBuffer(&indirectBuffer, &args, cmd);
 
+		if (instances.empty())
+		{
+			// Nothing drawn this time; the cleared arguments keep an earlier result from being drawn again:
+			device->Barrier(GPUBarrier::Buffer(&indirectBuffer, ResourceState::COPY_DST, ResourceState::INDIRECT_ARGUMENT), cmd);
+			device->EventEnd(cmd);
+			return;
+		}
+
+		const size_t shmodeldatasize = sizeof(ShaderGaussianSplatModel) * models.size();
+		auto model_alloc = device->AllocateGPU(shmodeldatasize, cmd);
+		ShaderGaussianSplatModel* dest = (ShaderGaussianSplatModel*)model_alloc.data;
+		for (size_t model_index = 0; model_index < models.size(); ++model_index)
+		{
+			const GaussianSplatModel& model = *models[model_index];
+			ShaderGaussianSplatModel shmodel = {};
+			shmodel.descriptor_splatBuffer = device->GetDescriptorIndex(&model.buffer, SubresourceType::SRV, model.subresource_splatBuffer);
+			shmodel.descriptor_shBuffer = model.subresource_shBuffer < 0 ? -1 : device->GetDescriptorIndex(&model.buffer, SubresourceType::SRV, model.subresource_shBuffer);
+			shmodel.aabb_min = model.aabb_rest._min;
+			shmodel.aabb_max = model.aabb_rest._max;
+			shmodel.sphericalHarmonicsDegree = model.subresource_shBuffer < 0 ? 0 : model.GetSphericalHarmonicsDegree();
+			shmodel.sphericalHarmonicsCount = GaussianSplatModel::GetSphericalHarmonicsCount(shmodel.sphericalHarmonicsDegree);
+			shmodel.splatCount = uint32_t(model.GetSplatCount());
+			std::memcpy(dest + model_index, &shmodel, sizeof(shmodel)); // memcpy into uncached
+		}
+		device->CopyBuffer(&modelBuffer, 0, &model_alloc.buffer, model_alloc.offset, shmodeldatasize, cmd);
+
+		const size_t shinstancedatasize = sizeof(ShaderGaussianSplatInstance) * instances.size();
+		auto instance_alloc = device->AllocateGPU(shinstancedatasize, cmd);
+		std::memcpy(instance_alloc.data, instances.data(), shinstancedatasize); // memcpy into uncached
+		device->CopyBuffer(&instanceBuffer, 0, &instance_alloc.buffer, instance_alloc.offset, shinstancedatasize, cmd);
+
 		{
 			GPUBarrier barriers[] = {
 				GPUBarrier::Buffer(&modelBuffer, ResourceState::COPY_DST, ResourceState::SHADER_RESOURCE),
+				GPUBarrier::Buffer(&instanceBuffer, ResourceState::COPY_DST, ResourceState::SHADER_RESOURCE),
 				GPUBarrier::Buffer(&indirectBuffer, ResourceState::COPY_DST, ResourceState::UNORDERED_ACCESS),
 			};
 			device->Barrier(barriers, arraysize(barriers), cmd);
 		}
 
-		// All models dispatch themselves into global buffer for sorting:
-		for (size_t model_index = 0; model_index < model_count; ++model_index)
+		// Every drawn splat of every placement is culled into the global buffer for sorting:
 		{
-			const GaussianSplatModel& model = *models[model_index];
 			device->BindComputeShader(&computeShader, cmd);
 			device->BindResource(&modelBuffer, 0, cmd);
+			device->BindResource(&instanceBuffer, 1, cmd);
 			device->BindUAV(&indirectBuffer, 0, cmd);
 			device->BindUAV(&sortedIndexBuffer, 1, cmd);
 			device->BindUAV(&distanceBuffer, 2, cmd);
@@ -430,15 +509,17 @@ namespace wi
 
 			struct Push
 			{
-				uint model_index;
+				uint instance_count;
 				uint camera_count;
 				uint dispatch_offset;
+				uint slot_count;
 			} push = {};
-			push.model_index = (uint)model_index;
+			push.instance_count = (uint)instances.size();
 			push.camera_count = camera_count;
+			push.slot_count = slot_count;
 
 			// Some GPU can't exceed dispatch group count of 65535 in single dimension (DX12 validation), so I do multiple dispatches with max 65535 group count each:
-			int remaining_threadgroups = ((int)model.GetSplatCount() + GAUSSIAN_COMPUTE_THREADSIZE - 1) / GAUSSIAN_COMPUTE_THREADSIZE;
+			int remaining_threadgroups = ((int)slot_count + GAUSSIAN_COMPUTE_THREADSIZE - 1) / GAUSSIAN_COMPUTE_THREADSIZE;
 			uint32_t group_offset = 0;
 			while (remaining_threadgroups > 0)
 			{
@@ -462,7 +543,7 @@ namespace wi
 		}
 
 		// Sorting is done globally for buffer containing all models:
-		wi::gpusortlib::Sort((uint32_t)global_splat_count, distanceBuffer, indirectBuffer, offsetof(IndirectDrawArgsInstanced, InstanceCount), sortedIndexBuffer, cmd);
+		wi::gpusortlib::Sort(slot_count, distanceBuffer, indirectBuffer, offsetof(IndirectDrawArgsInstanced, InstanceCount), sortedIndexBuffer, cmd);
 
 		{
 			GPUBarrier barriers[] = {
@@ -499,6 +580,7 @@ namespace wi
 		device->BindResource(&sortedIndexBuffer, 0, cmd);
 		device->BindResource(&splatLookupBuffer, 1, cmd);
 		device->BindResource(&modelBuffer, 2, cmd);
+		device->BindResource(&instanceBuffer, 3, cmd);
 		device->PushConstants(&camera_count, sizeof(camera_count), cmd);
 		device->DrawInstancedIndirect(&indirectBuffer, 0, cmd);
 		device->EventEnd(cmd);
@@ -508,7 +590,9 @@ namespace wi
 	{
 		splat_capacity = 0;
 		model_capacity = 0;
+		draw_capacity = 0;
 		modelBuffer = {};
+		instanceBuffer = {};
 		indirectBuffer = {};
 		sortedIndexBuffer = {};
 		distanceBuffer = {};

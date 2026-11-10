@@ -6066,6 +6066,42 @@ void DrawSoftParticles(
 
 	wi::profiler::EndRange(range);
 }
+// Standalone splat models and instance placements that pass the culling tests, as draws for GaussianSplatScene::UpdateGPU:
+template<typename BoxTest, typename SphereTest>
+static void CollectGaussianSplatDraws(const Scene& scene, BoxTest&& box_visible, SphereTest&& sphere_visible, wi::vector<wi::GaussianSplatDraw>& draws)
+{
+	draws.clear();
+	for (size_t i = 0; i < scene.gaussian_splats.GetCount(); ++i)
+	{
+		const wi::GaussianSplatModel& splat = scene.gaussian_splats[i];
+		if (splat.IsInstanceAsset() || !box_visible(splat.aabb))
+			continue;
+		wi::GaussianSplatDraw& draw = draws.emplace_back();
+		draw = {};
+		draw.model = &splat;
+		draw.transform = &splat.transform;
+		draw.splatCount = uint32_t(splat.GetSplatCount());
+	}
+	for (size_t i = 0; i < scene.gaussian_splat_instance_sets.GetCount(); ++i)
+	{
+		const wi::GaussianSplatInstanceSet& set = scene.gaussian_splat_instance_sets[i];
+		// Bounds are refreshed by Scene::Update; placements added since then are drawn from the next update:
+		if (set.asset == nullptr || set.bounds.size() != set.instances.size() || !box_visible(set.aabb))
+			continue;
+		for (size_t j = 0; j < set.instances.size(); ++j)
+		{
+			if (set.GetDrawCount(j) == 0 || !sphere_visible(set.GetBoundingSphere(j)))
+				continue;
+			const wi::GaussianSplatInstance& instance = set.instances[j];
+			wi::GaussianSplatDraw& draw = draws.emplace_back();
+			draw.model = set.asset;
+			draw.transform = &instance.transform;
+			draw.splatCount = instance.splatCount;
+			draw.footprintScale = instance.footprintScale;
+			draw.tint = instance.tint;
+		}
+	}
+}
 void UpdateGaussianSplatsForCamera(
 	const Scene& scene,
 	const CameraComponent& camera,
@@ -6074,20 +6110,15 @@ void UpdateGaussianSplatsForCamera(
 {
 	if (!scene.gaussian_scene.IsValid())
 		return;
-	thread_local wi::vector<const wi::GaussianSplatModel*> visible_gaussian_models;
-	visible_gaussian_models.clear();
-	for (size_t i = 0; i < scene.gaussian_splats.GetCount(); ++i)
-	{
-		const wi::GaussianSplatModel& splat = scene.gaussian_splats[i];
-		if (!camera.frustum.CheckBoxFast(splat.aabb))
-			continue;
-		visible_gaussian_models.push_back(&splat);
-	}
-	if (visible_gaussian_models.empty())
-		return;
+	thread_local wi::vector<wi::GaussianSplatDraw> visible_gaussian_draws;
+	CollectGaussianSplatDraws(scene,
+		[&](const AABB& aabb) { return camera.frustum.CheckBoxFast(aabb); },
+		[&](const Sphere& sphere) { return camera.frustum.CheckSphere(sphere.center, sphere.radius); },
+		visible_gaussian_draws
+	);
 
 	BindCommonResources(cmd);
-	scene.gaussian_scene.UpdateGPU(visible_gaussian_models.data(), visible_gaussian_models.size(), cmd, &camera.View);
+	scene.gaussian_scene.UpdateGPU(visible_gaussian_draws.data(), visible_gaussian_draws.size(), cmd); // zero draws clears the previous result
 }
 void DrawGaussianSplats(
 	const Scene& scene,
@@ -9433,27 +9464,19 @@ void RefreshEnvProbes(const Visibility& vis, CommandList cmd)
 			ComputeTiledLightCulling(tiledlights, vis, Texture(), cmd);
 		}
 
-		thread_local wi::vector<const wi::GaussianSplatModel*> visible_gaussian_models;
-		visible_gaussian_models.clear();
+		thread_local wi::vector<wi::GaussianSplatDraw> visible_gaussian_draws;
+		visible_gaussian_draws.clear();
 
 		if (valid_probe && vis.scene->gaussian_scene.IsValid())
 		{
-			XMFLOAT4X4 viewmatrices[arraysize(cameras)];
-			for (uint32_t i = 0; i < arraysize(cameras); ++i)
+			CollectGaussianSplatDraws(*vis.scene,
+				[&](const AABB& aabb) { return culler.intersects(aabb); },
+				[&](const Sphere& sphere) { return culler.intersects(sphere); },
+				visible_gaussian_draws
+			);
+			if (!visible_gaussian_draws.empty())
 			{
-				viewmatrices[i] = cb.cameras[i].view;
-			}
-
-			for (size_t i = 0; i < vis.scene->gaussian_splats.GetCount(); ++i)
-			{
-				const wi::GaussianSplatModel& splat = vis.scene->gaussian_splats[i];
-				if (!culler.intersects(splat.aabb))
-					continue;
-				visible_gaussian_models.push_back(&splat);
-			}
-			if (!visible_gaussian_models.empty())
-			{
-				vis.scene->gaussian_scene.UpdateGPU(visible_gaussian_models.data(), visible_gaussian_models.size(), cmd, viewmatrices, 6);
+				vis.scene->gaussian_scene.UpdateGPU(visible_gaussian_draws.data(), visible_gaussian_draws.size(), cmd, 6);
 			}
 		}
 
@@ -9739,7 +9762,7 @@ void RefreshEnvProbes(const Visibility& vis, CommandList cmd)
 			{
 				vis.scene->ocean.RenderForCubemap(cmd);
 			}
-			if (!visible_gaussian_models.empty())
+			if (!visible_gaussian_draws.empty())
 			{
 				vis.scene->gaussian_scene.Draw(cmd, 6); // 6 instances so it will be replicated for every cubemap face
 			}
